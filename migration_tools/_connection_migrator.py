@@ -1,3 +1,5 @@
+import copy
+from difflib import SequenceMatcher
 import xml.etree.ElementTree as ET
 from ruamel import yaml
 import csv
@@ -16,9 +18,8 @@ from rich.progress import Progress, SpinnerColumn, BarColumn, TextColumn
 from rich.table import Table
 from migration_tools._comparison_report import comparison_report, table_comparison_summary, table_issue_summary, \
     table_issue_detail, table_issue_list, table_info_list, report_section_title, table_current_mappings, table_file_list
-from migration_tools._error_handling import EInvalidDataTypes, EModelValidationError, EYAMLValidationError, EYAMLPreparationError
-from difflib import SequenceMatcher
-import copy
+from migration_tools._error_handling import EInvalidDataTypes, EModelValidationError, EYAMLValidationError, \
+    EYAMLPreparationError, EDatabaseNotSupported
 
 # Requirements:
 # ==> python3 -m pip install ruamel.yaml
@@ -1575,6 +1576,10 @@ class connection_migrator:
     def __init__(self, general_config):  # , project_name):
         self._general_config = general_config
 
+        # Validate platforms
+        self.check_platform_supported(general_config["MIGRATION"]["SOURCE_PLATFORM"])
+        self.check_platform_supported(general_config["MIGRATION"]["TARGET_PLATFORM"])
+
         self._source_config = toml.load(
             f"config/{self._general_config['MIGRATION']['SOURCE_PLATFORM'].casefold()}.toml")
         self._target_config = toml.load(
@@ -1596,6 +1601,10 @@ class connection_migrator:
             self.target_model.cdw,
             self.source_model._source_files_processed,
             self.target_model._source_files_processed)
+
+    def check_platform_supported(self, cdp_name):
+        if not Path(f"config/{cdp_name.casefold()}.toml").is_file():
+            raise EDatabaseNotSupported(cdp_name)
 
     def identify_mismatch_candidates(self):
         # Identify source tables for which there are multiple candidates on the

@@ -1,3 +1,5 @@
+import copy
+from difflib import SequenceMatcher
 import xml.etree.ElementTree as ET
 from ruamel import yaml
 import csv
@@ -16,9 +18,8 @@ from rich.progress import Progress, SpinnerColumn, BarColumn, TextColumn
 from rich.table import Table
 from migration_tools._comparison_report import comparison_report, table_comparison_summary, table_issue_summary, \
     table_issue_detail, table_issue_list, table_info_list, report_section_title, table_current_mappings, table_file_list
-from migration_tools._error_handling import EInvalidDataTypes, EModelValidationError, EYAMLValidationError, EYAMLPreparationError
-from difflib import SequenceMatcher
-import copy
+from migration_tools._error_handling import EInvalidDataTypes, EModelValidationError, EYAMLValidationError, \
+    EYAMLPreparationError, EDatabaseNotSupported
 
 # Requirements:
 # ==> python3 -m pip install ruamel.yaml

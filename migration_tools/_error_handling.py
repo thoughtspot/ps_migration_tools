@@ -56,3 +56,11 @@ class EYAMLPreparationError(ENonCriticalError):
         self.message = "Errors occurred during YAML preparation:\n"
         for e in error_list:
             self.message += {e} + "\n"
+
+
+class EDatabaseNotSupported(ENonCriticalError):
+
+    def __init__(self, cdp_name):
+        super().__init__()
+        self.message = f"The database platform selected {cdp_name} is not (yet) supported. " + \
+            "Contact the migration_tools team to get it implemented.\n"

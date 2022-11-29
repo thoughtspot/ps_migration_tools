@@ -1,39 +1,60 @@
 #TODO: Place this in a section
+[GENERAL_SETTINGS]
 BASE_PROJECTS_FOLDER = "./projects"
 DBSCHEMA_STUB = "/Applications/DbSchema/DbSchema.app/Contents/MacOS/JavaApplicationStub"
 LOG_FILE_PURGE_SECS = 600
-
-[TEMPLATES]
-PROJECT_CONFIG="""
-[MIGRATION]
-SOURCE_PLATFORM="FALCON"
-TARGET_PLATFORM="REDSHIFT"
-
-[FILE_LOCATIONS]
-SOURCE_MODEL_FOLDER = "$data_dir/input/models/falcon/"
-TARGET_MODEL_FOLDER = "$data_dir/input/models/target/"
-BUSINESS_MODEL = "$data_dir/input/business_model/model.xls"
-SRC_YAML_FILE_NAME = "$data_dir/input/connections_yaml/org_cmc_dummy_connection.yaml"
-DDL_COMPARISON_REPORT = '$data_dir/output/ddl_comparison.txt'
-TAR_YAML_FILE_NAME = "$data_dir/output/remapped_org_cmc_dummy_connection.yaml"
-MANUAL_OVERRIDES = "$data_dir/output/mapping_overrides.csv"
-
-[MODEL_VALIDATION]
-EXCLUDE_DATABASES = ['thoughtspot_internal','thoughtspot_internal_stats','34ae4719-2593-4ed4-ac3e-0ac797f0e7af']
-EXCLUDE_SCHEMAS = ["ViewDatabase.ViewSchema"]
-IGNORE_FALCON_VARCHAR_PRECISION = true
-ACCEPT_LARGER_TARGET_LENGTH_DECIMAL = true
-ONLY_REPORT_TABLES_WITH_ISSUES = true
-MIN_COLUMN_SIMILARITY_PCT=20
-MIN_COL_COUNT_FUZZY=2
-REPORT_WIDTH_COLS=160
-COPY_SOURCE_DEF_WHEN_NOT_FOUND=false
-MINIMUM_SCORE_FOR_MATCH=15
+DDL_CONVERSION_SCRIPT = './external_scripts/parse_model.sh'
 
 [YAML_PROCESSING]
 YAML_CLEANUP=true
 YAML_TABLE_CLEAN_UP = ['mapping_status','falcon_db','falcon_schema','falcon_table','old_falcon_db','old_falcon_schema','old_falcon_table']
 YAML_COL_CLEAN_UP = ['mapping_status','old_external_column','old_data_type']
+
+[TEMPLATES]
+PROJECT_CONFIG="""
+[MIGRATION]
+# Name of the source platform
+SOURCE_PLATFORM="FALCON"
+# Name of the target platform
+TARGET_PLATFORM="REDSHIFT"
+
+[FILE_LOCATIONS]
+# Folder where the source model files will be placed (*.dbs/*.csv)
+SOURCE_MODEL_FOLDER = "$data_dir/input/models/falcon/"
+# Folder where the target model files will be placed (*.dbs/*.csv)
+TARGET_MODEL_FOLDER = "$data_dir/input/models/target/"
+# Folder where the business model downloaded from the source platform (falcon) will be placed
+BUSINESS_MODEL = "$data_dir/input/business_model/model.xls"
+# File Spec (folder+name) of the source remapping.yaml file
+SRC_YAML_FILE_NAME = "$data_dir/input/connections_yaml/org_cmc_dummy_connection.yaml"
+# File Spec (folder+name) of the output comparison report
+DDL_COMPARISON_REPORT = '$data_dir/output/ddl_comparison.txt'
+# File Spec (folder+name) of the output remapped yaml file
+TAR_YAML_FILE_NAME = "$data_dir/output/remapped_org_cmc_dummy_connection.yaml"
+# File Spec (folder+name) of the override csv file
+MANUAL_OVERRIDES = "$data_dir/output/mapping_overrides.csv"
+
+[MODEL_VALIDATION]
+# Names of source databases which will be completed excluded from the process
+EXCLUDE_DATABASES = ['thoughtspot_internal','thoughtspot_internal_stats','34ae4719-2593-4ed4-ac3e-0ac797f0e7af']
+# Names of source schemas which will be completed excluded from the process
+EXCLUDE_SCHEMAS = ["ViewDatabase.ViewSchema"]
+# Do we ignore the length on any Falcon varchar data type
+IGNORE_FALCON_VARCHAR_PRECISION = true
+# Do we accept target data types with a larger length and/or precision?
+ACCEPT_LARGER_TARGET_LENGTH_DECIMAL = true
+# In the output report do we only list tables which have actual issues
+ONLY_REPORT_TABLES_WITH_ISSUES = true
+# The minimum percentage of column similarity to be required
+MIN_COLUMN_SIMILARITY_PCT=20
+# The minimum amount of columns a table needs to have for a successful column match
+MIN_COL_COUNT_FUZZY=2
+# Width of the report (and terminal)
+REPORT_WIDTH_COLS=160
+# If set True it will populate target definition in the override file with value of source (and target data type)
+COPY_SOURCE_DEF_WHEN_NOT_FOUND=false
+# Minimum score required for a successful match
+MINIMUM_SCORE_FOR_MATCH=15
 
 [DELTA_MIGRATION]
 SOURCE_TS_URL = "https://123.456.789"
