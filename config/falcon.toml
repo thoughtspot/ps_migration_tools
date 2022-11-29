@@ -1,0 +1,63 @@
+[[DATATYPE_REPLACE]]
+    data_type     = "INT"
+    # length        = None
+    # decimal       = None
+    new_data_type = "INTEGER"
+    # new_length    = None
+    # new_decimal   = None
+
+[[DATATYPE_REPLACE]]
+    data_type     = "TIMESTAMP"
+    # length        = None
+    # decimal       = None
+    new_data_type = "DATETIME"
+    # new_length    = None
+    # new_decimal   = None
+
+# From: https://thoughtspot.atlassian.net/wiki/spaces/Embrace/pages/614039908/Datatype+Mappings
+[DATATYPE_MAPPINGS]
+    # List reverse mapping first
+    [DATATYPE_MAPPINGS.INTEGER]
+        TARGET_TYPE="INTEGER"
+        YAML_TYPE="INT32"
+        GROUP="INTEGERS"
+    [DATATYPE_MAPPINGS.INT]
+        TARGET_TYPE="INTEGER"
+        YAML_TYPE="INT32"
+        GROUP="INTEGERS"
+    [DATATYPE_MAPPINGS.BIGINT]
+        TARGET_TYPE="BIGINT"
+        YAML_TYPE="INT64"
+        GROUP="INTEGERS"
+    [DATATYPE_MAPPINGS.FLOAT]
+        TARGET_TYPE="FLOAT"
+        YAML_TYPE="FLOAT"
+        GROUP="DOUBLE"
+    [DATATYPE_MAPPINGS.DOUBLE]
+        TARGET_TYPE="DOUBLE"
+        YAML_TYPE="DOUBLE"
+        GROUP="DOUBLE"
+    [DATATYPE_MAPPINGS.BOOL]
+        TARGET_TYPE="BOOL"
+        YAML_TYPE="BOOL"
+        GROUP="BOOLEANS"
+    [DATATYPE_MAPPINGS."VARCHAR(X)"]
+        TARGET_TYPE="VARCHAR"
+        YAML_TYPE="VARCHAR"
+        GROUP="TEXT"
+    [DATATYPE_MAPPINGS.DATE]
+        TARGET_TYPE="DATE"
+        YAML_TYPE="DATE"
+        GROUP="DATES"
+    [DATATYPE_MAPPINGS.DATETIME]
+        TARGET_TYPE="DATETIME"
+        YAML_TYPE="DATETIME"
+        GROUP="TIMESTAMPS"
+    [DATATYPE_MAPPINGS.TIMESTAMP]
+        TARGET_TYPE="TIMESTAMP"
+        YAML_TYPE="TIMESTAMP"
+        GROUP="TIMESTAMPS"
+    [DATATYPE_MAPPINGS.TIME]
+        TARGET_TYPE="TIME"
+        YAML_TYPE="TIME"
+        GROUP="TIMES"

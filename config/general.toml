@@ -1,0 +1,46 @@
+#TODO: Place this in a section
+BASE_PROJECTS_FOLDER = "./projects"
+DBSCHEMA_STUB = "/Applications/DbSchema/DbSchema.app/Contents/MacOS/JavaApplicationStub"
+LOG_FILE_PURGE_SECS = 600
+
+[TEMPLATES]
+PROJECT_CONFIG="""
+[MIGRATION]
+SOURCE_PLATFORM="FALCON"
+TARGET_PLATFORM="REDSHIFT"
+
+[FILE_LOCATIONS]
+SOURCE_MODEL_FOLDER = "$data_dir/input/models/falcon/"
+TARGET_MODEL_FOLDER = "$data_dir/input/models/target/"
+BUSINESS_MODEL = "$data_dir/input/business_model/model.xls"
+SRC_YAML_FILE_NAME = "$data_dir/input/connections_yaml/org_cmc_dummy_connection.yaml"
+DDL_COMPARISON_REPORT = '$data_dir/output/ddl_comparison.txt'
+TAR_YAML_FILE_NAME = "$data_dir/output/remapped_org_cmc_dummy_connection.yaml"
+MANUAL_OVERRIDES = "$data_dir/output/mapping_overrides.csv"
+
+[MODEL_VALIDATION]
+EXCLUDE_DATABASES = ['thoughtspot_internal','thoughtspot_internal_stats','34ae4719-2593-4ed4-ac3e-0ac797f0e7af']
+EXCLUDE_SCHEMAS = ["ViewDatabase.ViewSchema"]
+IGNORE_FALCON_VARCHAR_PRECISION = true
+ACCEPT_LARGER_TARGET_LENGTH_DECIMAL = true
+ONLY_REPORT_TABLES_WITH_ISSUES = true
+MIN_COLUMN_SIMILARITY_PCT=20
+MIN_COL_COUNT_FUZZY=2
+REPORT_WIDTH_COLS=160
+COPY_SOURCE_DEF_WHEN_NOT_FOUND=false
+MINIMUM_SCORE_FOR_MATCH=15
+
+[YAML_PROCESSING]
+YAML_CLEANUP=true
+YAML_TABLE_CLEAN_UP = ['mapping_status','falcon_db','falcon_schema','falcon_table','old_falcon_db','old_falcon_schema','old_falcon_table']
+YAML_COL_CLEAN_UP = ['mapping_status','old_external_column','old_data_type']
+
+[DELTA_MIGRATION]
+SOURCE_TS_URL = "https://123.456.789"
+SOURCE_USERNAME = "username"
+SOURCE_PASSWORD = "password"
+DEST_TS_URL = "https://789.456.123"
+DEST_USERNAME = "username"
+DEST_PASSWORD = "password"
+
+"""
