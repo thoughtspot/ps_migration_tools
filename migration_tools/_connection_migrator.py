@@ -31,8 +31,6 @@ from migration_tools._error_handling import EInvalidDataTypes, EModelValidationE
 # CLASS MigrationUtils
 # ======================================================================================================================
 
-# TODO: Check why matching candidates show up in similarity?
-
 class MigrationUtils:
     @staticmethod
     def fuzzy_strip(column):
@@ -406,12 +404,14 @@ class dbschema_model:
 
                 line_count += 1
 
-        # TODO: Check if these counts are correct, and split out database
+        stats = self.get_stats()
+
         output_message(''.join(
             (f"Parsed csv file {db_file} ({self.model[database_name]['source_database']}): ",
-             f"Schemas: {self.model[database_name]['total_schemas']} ",
-             f"Tables: {self.model[database_name]['total_tables']} ",
-             f"Columns: {self.model[database_name]['total_columns']}")),
+             f"Databases: {stats['db_cnt']} ",
+             f"Schemas: {stats['sch_cnt']} ",
+             f"Tables: {stats['tbl_cnt']} ",
+             f"Columns: {stats['col_cnt']}")),
             "success")
 
     def parse_dbs(self, database_name, db_data):
@@ -569,75 +569,78 @@ class dbschema_model:
         #               similar the two table names are
         #         0.0 : No match found
         # --------------------------------------------------------------------------------------------------
-        matching_tables = [{"database": tdatabase, "schema": tschema, "table": ttable,
-                           # Check if a target table is available for mapping, i.e. it has not been mapped to
-                            # any other source table already
-                            "available": mapping_details.table_available_for_matching(
-                                mapping_category, tdatabase, tschema, ttable),
-                            # -------------------------------------------------------------------------------
-                            # Score = 100 (perfect) => identical table names (case insensitive) and the same
-                            # amount of identical column names (fuzzy matched)
-                            "rank": 100
-                            if ttable.casefold() == source_table.casefold() and len(source_column_list) ==
-                            len(self.get_column_list_for_table(tdatabase, tschema, ttable))
+        matching_tables_prep = [{"database": tdatabase, "schema": tschema, "table": ttable,
+                                 # Check if a target table is available for mapping, i.e. it has not been mapped to
+                                 # any other source table already
+                                 "available": mapping_details.table_available_for_matching(
+                                     mapping_category, tdatabase, tschema, ttable),
+                                 # -------------------------------------------------------------------------------
+                                 # Score = 100 (perfect) => identical table names (case insensitive) and the same
+                                 # amount of identical column names (fuzzy matched)
+                                 "rank": 100
+                                 if ttable.casefold() == source_table.casefold() and len(source_column_list) ==
+                                 len(self.get_column_list_for_table(tdatabase, tschema, ttable))
 
-                            # -------------------------------------------------------------------------------
-                            # Score = 75 - 85 =>
-                            # The table names do not match (case insensitive), but the tables have the same
-                            # amount of fuzzy matching columns.
-                            # Base score is 75, but this can be increased based on the similarity of the
-                            # table names
-                            else
-                            round(75 + (10 * self.similar_names(ttable.casefold(),
-                                                                source_table.casefold())),
-                                  1)
-                            if ttable.casefold() != source_table.casefold() and len(source_column_list) ==
-                            len(self.get_column_list_for_table(tdatabase, tschema, ttable))
+                                 # -------------------------------------------------------------------------------
+                                 # Score = 75 - 85 =>
+                                 # The table names do not match (case insensitive), but the tables have the same
+                                 # amount of fuzzy matching columns.
+                                 # Base score is 75, but this can be increased based on the similarity of the
+                                 # table names
+                                 else
+                                 round(75 + (10 * self.similar_names(ttable.casefold(),
+                                                                     source_table.casefold())),
+                                       1)
+                                 if ttable.casefold() != source_table.casefold() and len(source_column_list) ==
+                                 len(self.get_column_list_for_table(tdatabase, tschema, ttable))
 
-                            # -------------------------------------------------------------------------------
-                            # Score = 50 => identical column names (case insensitive). All columns of the
-                            # source table fuzzy match the target columns, but the target table has additional
-                            # columns.
-                            else 50
-                            if ttable.casefold() == source_table.casefold() and len(source_column_list) <
-                            len(self.get_column_list_for_table(tdatabase, tschema, ttable))
+                                 # -------------------------------------------------------------------------------
+                                 # Score = 50 => identical column names (case insensitive). All columns of the
+                                 # source table fuzzy match the target columns, but the target table has additional
+                                 # columns.
+                                 else 50
+                                 if ttable.casefold() == source_table.casefold() and len(source_column_list) <
+                                 len(self.get_column_list_for_table(tdatabase, tschema, ttable))
 
 
-                            # -------------------------------------------------------------------------------
-                            # Score = 25 - 35 =>
-                            # The table names do not match (case insensitive), all columns of the source
-                            # table fuzzy match the target columns, but the target table has additional
-                            # columns.
-                            # Base score is 25, but this can be increased based on the similarity of the
-                            # table names
-                            # There is an additional condition (configurable) that the source table must have
-                            # at least X columns
-                            else
-                            round(25 + (10 * self.similar_names(ttable.casefold(),
-                                                                source_table.casefold())),
-                                  1)
-                            if ttable.casefold() != source_table.casefold() and len(source_column_list) <
-                            len(self.get_column_list_for_table(tdatabase, tschema, ttable)) and len(source_column_list)
-                            >= self._general_config.get('MODEL_VALIDATION').get('MIN_COL_COUNT_FUZZY')
+                                 # -------------------------------------------------------------------------------
+                                 # Score = 25 - 35 =>
+                                 # The table names do not match (case insensitive), all columns of the source
+                                 # table fuzzy match the target columns, but the target table has additional
+                                 # columns.
+                                 # Base score is 25, but this can be increased based on the similarity of the
+                                 # table names
+                                 # There is an additional condition (configurable) that the source table must have
+                                 # at least X columns
+                                 else
+                                 round(25 + (10 * self.similar_names(ttable.casefold(),
+                                                                     source_table.casefold())),
+                                       1)
+                                 if ttable.casefold() != source_table.casefold() and len(source_column_list) <
+                                 len(self.get_column_list_for_table(tdatabase, tschema, ttable)) and len(source_column_list)
+                                 >= self._general_config.get('MODEL_VALIDATION').get('MIN_COL_COUNT_FUZZY')
 
-                            # -------------------------------------------------------------------------------
-                            # Score = 0 => No suitable match found
-                            else 0}
+                                 # -------------------------------------------------------------------------------
+                                 # Score = 0 => No suitable match found
+                                 else 0}
 
-                           for tdatabase in self.model
-                           for tschema in self.model[tdatabase]['schemas']
-                           for ttable in self.model[tdatabase]['schemas'][tschema]
-                           # Fuzzy match the column name lists
-                           if [MigrationUtils.fuzzy_strip(c1) for c1 in source_column_list] ==
-                           [MigrationUtils.fuzzy_strip(c2)
-                            for c2 in self.get_column_list_for_table(tdatabase, tschema, ttable)] or
-                           all(
+                                for tdatabase in self.model
+                                for tschema in self.model[tdatabase]['schemas']
+                                for ttable in self.model[tdatabase]['schemas'][tschema]
+                                # Fuzzy match the column name lists
+                                if [MigrationUtils.fuzzy_strip(c1) for c1 in source_column_list] ==
+                                [MigrationUtils.fuzzy_strip(c2)
+                                 for c2 in self.get_column_list_for_table(tdatabase, tschema, ttable)] or
+                                all(
             elem
             in
             [MigrationUtils.fuzzy_strip(c2)
              for c2 in self.get_column_list_for_table(tdatabase, tschema, ttable)]
             for elem in [MigrationUtils.fuzzy_strip(c1) for c1 in source_column_list])
         ]
+
+        # Remove matches with rank of 0
+        matching_tables = [mt for mt in matching_tables_prep if float(mt['rank']) > 0]
 
         # --------------------------------------------------------------------------------------------
         # Build a list of similar tables, these are tables which are not matching candidates but are
@@ -649,6 +652,7 @@ class dbschema_model:
                            (
                                len(
                                    list(
+                                       # Columns appearing in both tables
                                        set([MigrationUtils.fuzzy_strip(c1) for c1 in source_column_list]) &
                                        set(
                                            [MigrationUtils.fuzzy_strip(c2)
@@ -656,7 +660,8 @@ class dbschema_model:
                                len(source_column_list)) * 100, 1)}
                       for tdatabase in self.model
                       for tschema in self.model[tdatabase]['schemas']
-                      for ttable in self.model[tdatabase]['schemas'][tschema]]
+                      for ttable in self.model[tdatabase]['schemas'][tschema]
+                      if f"{tdatabase}.{tschema}.{ttable}" not in [f"{mt['database']}.{mt['schema']}.{mt['table']}" for mt in matching_tables]]
 
         # Rank this table list based on similarity percentage
         sim_table_ranking = sorted([t for t in sim_tables if t['sim_pct'] > self._general_config.get(
@@ -694,15 +699,15 @@ class dbschema_model:
                             m['status_msg'] = ''.join((
                                 f"Table {m['table']} matched via identical match: ",
                                 "same table name, same columns"))
-                        elif m['rank'] == 75:
-                            m['status_msg'] = ''.join((
-                                f"Table {m['table']} matched via fuzzy match: same table name, ",
-                                "target has more columns than source which will result in a partial match"))
-                        elif m['rank'] <= 50:
+                        elif m['rank'] >= 75:
                             m['status_msg'] = ''.join((
                                 f"Table {m['table']} matched via fuzzy match: ",
                                 "different table name, same columns"))
-                        elif m['rank'] <= 25:
+                        elif m['rank'] == 50:
+                            m['status_msg'] = ''.join((
+                                f"Table {m['table']} matched via fuzzy match: same table name, ",
+                                "target has more columns than source which will result in a partial match"))
+                        elif m['rank'] >= 25:
                             m['status_msg'] = ''.join((
                                 f"Table {m['table']} matched via fuzzy match: different table name, ",
                                 "target has more columns than source will might result in a partial match"))
@@ -747,8 +752,7 @@ class business_model:
     def load_from_file(self):
         # Should exist as otherwise an error would have been raised earlier
         for file in os.listdir(self.folder_name):
-            # TODO: Cater for models with extension .tsv
-            if file.endswith(".xls"):
+            if file.endswith(".xls") or file.endswith(".tsv"):
                 self.file_name = self.folder_name + file
 
                 self.src_model_tables = []
@@ -1620,8 +1624,8 @@ Similarity Percent  :   How similar are the two tables in terms of columns.
             ]
         ))
 
-        if typer.confirm("\nDo you want to list the validation output on screen? (Can be lengthy)"):
-            report.to_screen()
+        # if typer.confirm("\nDo you want to list the validation output on screen? (Can be lengthy)"):
+        #     report.to_screen()
         report.to_file()
 
     def has_issues(self):
@@ -1742,7 +1746,7 @@ class connection_migrator:
 
         model_found = False
         for file in os.listdir(self._general_config.get('FILE_LOCATIONS').get('BUSINESS_MODEL_FOLDER')):
-            if file.endswith(".xls"):
+            if file.endswith(".xls") or file.endswith(".tsv"):
                 model_found = True
                 break
 
