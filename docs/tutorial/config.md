@@ -22,6 +22,22 @@ The directory structure has now been created and a template configuration file h
 
 ![](./tutorial_created_structure.png)
 
-## Tweaking the project configuration file
+## Configuring for model validation and YAML migration
 
-In the folder projects/myfirstproject/config/ a template configuration file has been created for your project with the name myfirstproject.toml. You will now need to tweak these settings for the needs of your project.
+In the folder projects/myfirstproject/config/ a template configuration file has been created for your project with the name myfirstproject.toml. You will now need to tweak these settings for the needs of your project. Please see the command [create-config](../../migration-tools/create-config/readme) for more details on the various configuration settings. 
+Typically, however, for model validations and YAML migration, you probably only need to change the source and target platform.
+
+In this example we are doing a migration from Falcon to Redshift, so we set those two parameters on top of the configuration file and leave the rest as is.
+
+```toml
+[MIGRATION]
+# Name of the source platform
+SOURCE_PLATFORM="FALCON"
+# Name of the target platform
+TARGET_PLATFORM="REDSHIFT"
+```
+
+With these configuration setting made, we are ready to do some model validations.
+## Configuring for delta migrations etc
+
+Coming soon

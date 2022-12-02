@@ -239,6 +239,7 @@ def convert_ddls(
     console.print("MIGRATION TOOLS - Converting DDLS (using DBSchema)", style="bold blue")
     cfg = get_cfg(cfg_name)
 
+    # TODO: Better error handling in the script, currently we need to check the log if it went well
     if Path(cfg['GENERAL_SETTINGS'].get('DBSCHEMA_STUB')).is_file():
         output = check_output([
             cfg['GENERAL_SETTINGS']['DDL_CONVERSION_SCRIPT'],
@@ -255,10 +256,12 @@ def convert_ddls(
         raise EDBSchemaNotInstalled()
 
 
-@app.command(name="validate_models")
+@ app.command(name="validate_models")
 def validate_models(
     ctx: typer.Context,
     cfg_name: str = typer.Option(..., help="Name of config file"),
+
+
 ):
     """_summary_
 
@@ -273,7 +276,7 @@ def validate_models(
     app.compare_models()
 
 
-@app.command(name="migrate_yaml")
+@ app.command(name="migrate_yaml")
 def migrate_yaml(
     ctx: typer.Context,
     cfg_name: str = typer.Option(..., help="Name of config file"),
@@ -292,14 +295,14 @@ def migrate_yaml(
     app.migrate_yaml()
 
 
-@app.command(name="deltas")
+@ app.command(name="deltas")
 def gather_deltas(
     ctx: typer.Context,
     cfg_name: str = typer.Option(..., help="Name of config file"),
-    #source_ts_url: str = typer.Option(..., help="URL of your ThoughtSpot cluster"),
-    #source_username: str = typer.Option(..., help="username of your source cluster"),
-    #source_password: str = typer.Option(..., help="password of your source cluster"),
-    #data_dir: pathlib.Path = typer.Option(..., help="directory to store output data in"),
+    # source_ts_url: str = typer.Option(..., help="URL of your ThoughtSpot cluster"),
+    # source_username: str = typer.Option(..., help="username of your source cluster"),
+    # source_password: str = typer.Option(..., help="password of your source cluster"),
+    # data_dir: pathlib.Path = typer.Option(..., help="directory to store output data in"),
     backup_date: dt.datetime = typer.Option("2012-11-01", help="date of the backup taken"),
 ):
     """ """

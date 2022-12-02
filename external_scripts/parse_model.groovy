@@ -12,9 +12,8 @@ String PROJECT = env['PROJECT_NAME']
 String SOURCE_PLATFORM = env['SOURCE_PLATFORM']
 String TARGET_PLATFORM = env['TARGET_PLATFORM']
 
-
 def convert_sql_2_model = { sql_path, model_path, source_db -> 
-    switch (source_db.toUpperCase) {
+    switch (source_db.toUpperCase()) {
         case "FALCON" : {source_db = 'ThoughtSpot'; break;}
     }
     println "Converting sql files in folder "+sql_path+" to target path "+model_path+" for data platform "+source_db
@@ -82,6 +81,12 @@ def convert_sql_2_model = { sql_path, model_path, source_db ->
 
     }
 }
+
+println("Executing script parse_model.groovy")
+println("MIGRATION_TOOLS_PATH="+MIGRATION_TOOLS_PATH)
+println("PROJECT="+PROJECT)
+println("SOURCE_PLATFORM="+SOURCE_PLATFORM)
+println("TARGET_PLATFORM="+TARGET_PLATFORM)
 
 // Make sure that the name of the target platform matches the name of the platform in DBSchema
 convert_sql_2_model(MIGRATION_TOOLS_PATH + "/projects/" +PROJECT.toLowerCase() +"/input/ddl/falcon/",MIGRATION_TOOLS_PATH + "/projects/" +PROJECT.toLowerCase() +"/input/models/falcon/",SOURCE_PLATFORM)

@@ -766,10 +766,11 @@ class connections_yaml:
         self._source_config = source_config
         self._target_config = target_config
 
-        self.source_file_name = self._general_config.get('FILE_LOCATIONS').get('SRC_YAML_FILE_NAME')
+        self.source_file_name = self._general_config.get('FILE_LOCATIONS').get('SRC_YAML_FOLDER')
         self.source_model = source_model
         self.target_model = target_model
-        self.business_model = business_model(self._general_config.get('FILE_LOCATIONS').get('BUSINESS_MODEL'))
+        self.business_model = business_model(self._general_config.get(
+            'FILE_LOCATIONS').get('BUSINESS_MODEL_FOLDER'))
         self.tables_used_for_renaming = []
         self.mapping_details = mapping_details
         self.load_yaml_from_file()
@@ -1551,7 +1552,7 @@ Similarity Percent  :   How similar are the two tables in terms of columns.
             data=[
                 [f"Source Model Files ({len(self._source_files_processed)})", "\n".join(self._source_files_processed)],
                 [f"Target Model Files ({len(self._target_files_processed)})", "\n".join(self._target_files_processed)],
-                ["Source Business Model", self._general_config.get('FILE_LOCATIONS').get('BUSINESS_MODEL')]
+                ["Source Business Model", self._general_config.get('FILE_LOCATIONS').get('BUSINESS_MODEL_FOLDER')]
             ]
         ))
 
@@ -1651,7 +1652,7 @@ class connection_migrator:
         # Requirements:
         # - SOURCE_MODEL_FOLDER not empty
         # - TARGET_MODEL_FOLDER not empty
-        # - BUSINESS_MODEL exists
+        # - BUSINESS_MODEL_FOLDER exists
 
         if len(os.listdir(self._general_config.get('FILE_LOCATIONS').get('SOURCE_MODEL_FOLDER'))) == 0:
             output_message(
@@ -1661,8 +1662,8 @@ class connection_migrator:
             output_message(
                 ("No target model(s) specified in ",
                  self._general_config.get('FILE_LOCATIONS').get('TARGET_MODEL_FOLDER')))
-        elif not Path(self._general_config.get('FILE_LOCATIONS').get('BUSINESS_MODEL')).is_file():
-            output_message(f"{self._general_config.get('FILE_LOCATIONS').get('BUSINESS_MODEL')} does not exist")
+        elif not Path(self._general_config.get('FILE_LOCATIONS').get('BUSINESS_MODEL_FOLDER')).is_file():
+            output_message(f"{self._general_config.get('FILE_LOCATIONS').get('BUSINESS_MODEL_FOLDER')} does not exist")
         else:
             output_message("Start comparing data models....")
             # ============
@@ -1938,9 +1939,9 @@ class connection_migrator:
             self.mapping_details.export()
 
     def migrate_yaml(self):
-        if not Path(self._general_config['FILE_LOCATIONS']['SRC_YAML_FILE_NAME']).is_file():
+        if not Path(self._general_config['FILE_LOCATIONS']['SRC_YAML_FOLDER']).is_file():
             output_message(
-                f"Source YAML file {self._general_config['FILE_LOCATIONS']['SRC_YAML_FILE_NAME']} does not exist!")
+                f"Source YAML file {self._general_config['FILE_LOCATIONS']['SRC_YAML_FOLDER']} does not exist!")
         elif not self.mapping_details.has_issues() > 0:
             connections = connections_yaml(
                 self._general_config,

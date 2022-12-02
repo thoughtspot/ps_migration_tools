@@ -19,7 +19,7 @@ from rich.table import Table
 from migration_tools._comparison_report import comparison_report, table_comparison_summary, table_issue_summary, \
     table_issue_detail, table_issue_list, table_info_list, report_section_title, table_current_mappings, table_file_list
 from migration_tools._error_handling import EInvalidDataTypes, EModelValidationError, EYAMLValidationError, \
-    EYAMLPreparationError, EDatabaseNotSupported
+    EYAMLPreparationError, EDatabaseNotSupported, EInputFilesMissing
 
 # Requirements:
 # ==> python3 -m pip install ruamel.yaml
@@ -31,6 +31,7 @@ from migration_tools._error_handling import EInvalidDataTypes, EModelValidationE
 # CLASS MigrationUtils
 # ======================================================================================================================
 
+# TODO: Check why matching candidates show up in similarity?
 
 class MigrationUtils:
     @staticmethod
@@ -42,14 +43,19 @@ class MigrationUtils:
             column (str): The column value to be stripped
 
         Returns:
-            _type_: The column value in lowercase, underscores replaced by spaces and special characters removed
+            _type_: The column value in lowercase, underscores, parentheses replaced by spaces and special characters removed
         """
-        return (column.casefold().replace('_', ' ').strip().encode("ascii", errors="ignore").decode())
+        # return (column.casefold().replace('(', '').replace(')', '').replace(
+        #     '_', ' ').strip().encode("ascii", errors="ignore").decode())
+        return " ".join((column.casefold().replace('(', ' ').replace(')', ' ').replace(
+            '_', ' ').strip().encode("ascii", errors="ignore").decode()).split())
 
-
+# " ".join(my_str.split())
 # ======================================================================================================================
 # CLASS datatype
 # ======================================================================================================================
+
+
 class datatype:
     cdw: None
     basetype: None
@@ -367,7 +373,7 @@ class dbschema_model:
             line_count = 0
             for row in csv_reader:
                 # 'DATABASE_NAME','SCHEMA_NAME','TABLE_NAME','COLUMN_NAME','DATA_TYPE','LENGTH','DECIMAL']
-                if line_count > 0 and row[0] != "":
+                if line_count >= 0 and row[0] != "":
                     database_name = row[0]
                     schema_name = row[1]
                     table_name = row[2]
@@ -400,11 +406,12 @@ class dbschema_model:
 
                 line_count += 1
 
-        output_message(
+        # TODO: Check if these counts are correct, and split out database
+        output_message(''.join(
             (f"Parsed csv file {db_file} ({self.model[database_name]['source_database']}): ",
              f"Schemas: {self.model[database_name]['total_schemas']} ",
              f"Tables: {self.model[database_name]['total_tables']} ",
-             f"Columns: {self.model[database_name]['total_columns']}"),
+             f"Columns: {self.model[database_name]['total_columns']}")),
             "success")
 
     def parse_dbs(self, database_name, db_data):
@@ -529,16 +536,36 @@ class dbschema_model:
         """
         result = False
 
+        output_message(
+            f'Executing fuzzy match for table {source_db}.{source_schema}.{source_table} with columns {",".join(source_column_list)}')
+
+        output_message('Considering tables:')
+
+        output_message(','.join([f"{tdatabase}.{tschema}.{ttable} ({mapping_details.table_available_for_matching(mapping_category, tdatabase, tschema, ttable)}) " for tdatabase in self.model
+                                 for tschema in self.model[tdatabase]['schemas']
+                                 for ttable in self.model[tdatabase]['schemas'][tschema]
+                                 # Fuzzy match the column name lists
+                                 if [MigrationUtils.fuzzy_strip(c1) for c1 in source_column_list] ==
+                                 [MigrationUtils.fuzzy_strip(c2)
+                                  for c2 in self.get_column_list_for_table(tdatabase, tschema, ttable)] or
+                                 all(
+                                     elem
+                                     in
+                                     [MigrationUtils.fuzzy_strip(c2)
+                                      for c2 in self.get_column_list_for_table(tdatabase, tschema, ttable)]
+                                     for elem in [MigrationUtils.fuzzy_strip(c1) for c1 in source_column_list])
+                                 ]))
+
         # --------------------------------------------------------------------------------------------------
         # Ranking explained:
         #       100.0 : Perfect match: same table name (case insensitive),
         #               same columns (fuzzy matched) and same number of columns
-        #        75.0 : Same table name (case insensitive), source columns are present in target table,
+        # 75.0 - 85.0 : Different table names, same columns (fuzzy matched) and same number of columns.
+        #               The closer the number is to 85, the more similar the two table names are
+        #        50.0 : Same table name (case insensitive), source columns are present in target table,
         #               but target table has additional columns
-        # 25.1 - 50.0 : Different table names, same columns (fuzzy matched) and same number of columns.
-        #               The closer the number is to 50, the more similar the two table names are
-        #  0.1 - 25.0 : Different table names, source columns are present in target table,
-        #               but target table has additional columns. The closer the number is to 25, the more
+        # 25.0 - 35.0 : Different table names, source columns are present in target table,
+        #               but target table has additional columns. The closer the number is to 35, the more
         #               similar the two table names are
         #         0.0 : No match found
         # --------------------------------------------------------------------------------------------------
@@ -553,37 +580,41 @@ class dbschema_model:
                             "rank": 100
                             if ttable.casefold() == source_table.casefold() and len(source_column_list) ==
                             len(self.get_column_list_for_table(tdatabase, tschema, ttable))
-                            # -------------------------------------------------------------------------------
-                            # Score = 75 => identical column names (case insensitive). All columns of the
-                            # source table fuzzy match the target columns, but the target table has additional
-                            # columns.
-                            else 75
-                            if ttable.casefold() == source_table.casefold() and len(source_column_list) <
-                            len(self.get_column_list_for_table(tdatabase, tschema, ttable))
 
                             # -------------------------------------------------------------------------------
-                            # Score = 25-50 => Base score is 50, but this is reduced based on the similarity
-                            # ratio between the two table names.
+                            # Score = 75 - 85 =>
                             # The table names do not match (case insensitive), but the tables have the same
                             # amount of fuzzy matching columns.
+                            # Base score is 75, but this can be increased based on the similarity of the
+                            # table names
                             else
-                            round(50 * self.similar_names(ttable.casefold(),
-                                                          source_table.casefold()),
+                            round(75 + (10 * self.similar_names(ttable.casefold(),
+                                                                source_table.casefold())),
                                   1)
                             if ttable.casefold() != source_table.casefold() and len(source_column_list) ==
                             len(self.get_column_list_for_table(tdatabase, tschema, ttable))
 
                             # -------------------------------------------------------------------------------
-                            # Score = 0-25 => Base score is 25, but this is reduced based on the similarity
-                            # ratio between the two table names.
+                            # Score = 50 => identical column names (case insensitive). All columns of the
+                            # source table fuzzy match the target columns, but the target table has additional
+                            # columns.
+                            else 50
+                            if ttable.casefold() == source_table.casefold() and len(source_column_list) <
+                            len(self.get_column_list_for_table(tdatabase, tschema, ttable))
+
+
+                            # -------------------------------------------------------------------------------
+                            # Score = 25 - 35 =>
                             # The table names do not match (case insensitive), all columns of the source
                             # table fuzzy match the target columns, but the target table has additional
                             # columns.
+                            # Base score is 25, but this can be increased based on the similarity of the
+                            # table names
                             # There is an additional condition (configurable) that the source table must have
                             # at least X columns
                             else
-                            round(25 * self.similar_names(ttable.casefold(),
-                                                          source_table.casefold()),
+                            round(25 + (10 * self.similar_names(ttable.casefold(),
+                                                                source_table.casefold())),
                                   1)
                             if ttable.casefold() != source_table.casefold() and len(source_column_list) <
                             len(self.get_column_list_for_table(tdatabase, tschema, ttable)) and len(source_column_list)
@@ -709,27 +740,34 @@ class business_model:
     file_name = None
     src_model_tables = None
 
-    def __init__(self, file_name):
-        self.file_name = file_name
+    def __init__(self, folder_name):
+        self.folder_name = folder_name
         self.load_from_file()
 
     def load_from_file(self):
-        self.src_model_tables = []
-        if Path(self.file_name).is_file():
-            with open(self.file_name) as csv_file:
-                csv_reader = csv.reader(csv_file, delimiter='\t')
-                line_count = 0
-                for row in csv_reader:
-                    if line_count > 0 and row[self.COL_PHYSICAL_TABLE_NAME] != "":
-                        self.src_model_tables.append({
-                            "TableGUID": row[self.COL_TABLE_GUID],
-                            "LogicalTableName": row[self.COL_LOGICAL_TABLE_NAME],
-                            "PhysicalTableName": row[self.COL_PHYSICAL_TABLE_NAME],
-                            "ColumnGUID": row[self.COL_COLUMN_GUID],
-                            "LogicalColumnName": row[self.COL_LOGICAL_COLUMN_NAME],
-                            "PhysicalColumnName": row[self.COL_PHYSICAL_COLUMN_NAME]
-                        })
-                    line_count += 1
+        # Should exist as otherwise an error would have been raised earlier
+        for file in os.listdir(self.folder_name):
+            # TODO: Cater for models with extension .tsv
+            if file.endswith(".xls"):
+                self.file_name = self.folder_name + file
+
+                self.src_model_tables = []
+                if Path(self.file_name).is_file():
+                    with open(self.file_name) as csv_file:
+                        csv_reader = csv.reader(csv_file, delimiter='\t')
+                        line_count = 0
+                        for row in csv_reader:
+                            if line_count > 0 and row[self.COL_PHYSICAL_TABLE_NAME] != "":
+                                self.src_model_tables.append({
+                                    "TableGUID": row[self.COL_TABLE_GUID],
+                                    "LogicalTableName": row[self.COL_LOGICAL_TABLE_NAME],
+                                    "PhysicalTableName": row[self.COL_PHYSICAL_TABLE_NAME],
+                                    "ColumnGUID": row[self.COL_COLUMN_GUID],
+                                    "LogicalColumnName": row[self.COL_LOGICAL_COLUMN_NAME],
+                                    "PhysicalColumnName": row[self.COL_PHYSICAL_COLUMN_NAME]
+                                })
+                            line_count += 1
+                break
 
     def locate_by_id(self, table_id):
         table_details = None
@@ -766,10 +804,20 @@ class connections_yaml:
         self._source_config = source_config
         self._target_config = target_config
 
-        self.source_file_name = self._general_config.get('FILE_LOCATIONS').get('SRC_YAML_FILE_NAME')
+        yaml_found = False
+        for file in os.listdir(self._general_config.get('FILE_LOCATIONS').get('SRC_YAML_FOLDER')):
+            if file.endswith(".yaml"):
+                yaml_found = True
+                break
+
+        if not yaml_found:
+            raise EInputFilesMissing('input yaml', self._general_config.get(
+                'FILE_LOCATIONS').get('SRC_YAML_FOLDER'))
+
+        self.source_file_name = self._general_config.get('FILE_LOCATIONS').get('SRC_YAML_FOLDER') + file
         self.source_model = source_model
         self.target_model = target_model
-        self.business_model = business_model(self._general_config.get('FILE_LOCATIONS').get('BUSINESS_MODEL'))
+        self.business_model = business_model(self._general_config.get('FILE_LOCATIONS').get('BUSINESS_MODEL_FOLDER'))
         self.tables_used_for_renaming = []
         self.mapping_details = mapping_details
         self.load_yaml_from_file()
@@ -1031,10 +1079,10 @@ class connections_yaml:
                                 col['data_type'] = self._target_config['DATATYPE_MAPPINGS'][
                                     dt.format_type(True)]['YAML_TYPE']
                             else:
-                                errors.append(
+                                errors.append(''.join(
                                     ("Cannot find override column for DDL overriden table ",
                                      f"{table['external_table']['db_name']}.{table['external_table']['schema_name']}.",
-                                     f"{table['external_table']['table_name']} in override file"))
+                                     f"{table['external_table']['table_name']} in override file")))
                             if not overall_progress.finished:
                                 job_progress.advance(job2)
                                 completed = sum(task.completed for task in job_progress.tasks)
@@ -1165,6 +1213,9 @@ class connections_yaml:
         output_message(status_msg, "success" if yaml_validated else "error")
 
         # TODO: Check the defaults for yaml issues in override, they use YAML/SOURCE data types
+        # if
+        # self._general_config.get('MODEL_VALIDATION').get('COPY_SOURCE_DEF_WHEN_NOT_FOUND'):
+
         if not yaml_validated:
             raise EYAMLValidationError(self._general_config)
 
@@ -1436,6 +1487,20 @@ class mapping_details:
             ]
         ))
 
+        # --------------------------------------------------------------------------------------------------
+        # Ranking explained:
+        #       100.0 : Perfect match: same table name (case insensitive),
+        #               same columns (fuzzy matched) and same number of columns
+        # 75.0 - 85.0 : Different table names, same columns (fuzzy matched) and same number of columns.
+        #               The closer the number is to 85, the more similar the two table names are
+        #        50.0 : Same table name (case insensitive), source columns are present in target table,
+        #               but target table has additional columns
+        # 25.0 - 35.0 : Different table names, source columns are present in target table,
+        #               but target table has additional columns. The closer the number is to 35, the more
+        #               similar the two table names are
+        #         0.0 : No match found
+        # --------------------------------------------------------------------------------------------------
+
         report_clarification = f"""
 The fuzzy matching process used in the mapping process produced the table mappings displayed above.
 Incorrect mappings can be overridden in the mapping overrides file, which can be found here:
@@ -1448,14 +1513,14 @@ Scoring explained:
       100.0 │ Perfect match:
             │ - Same table name (case insensitive)
             │ - Same columns (fuzzy matched) and same number of columns
-       75.0 │ - Same table name (case insensitive)
-            │ - Source columns are present in target table, but target table has additional columns
-25.1 - 50.0 │ - Different table names
+75.0 - 85.0 │ - Different table names
             │ - Same columns (fuzzy matched) and same number of columns
-            │ - The closer the number is to 50, the more similar the two table names are
- 0.1 - 25.0 │ - Different table names
+            │ - The closer the number is to 85, the more similar the two table names are
+       50.0 │ - Same table name (case insensitive)
             │ - Source columns are present in target table, but target table has additional columns
-            │ - The closer the number is to 25, the more similar the two table names are
+25.0 - 35.0 │ - Different table names
+            │ - Source columns are present in target table, but target table has additional columns
+            │ - The closer the number is to 35, the more similar the two table names are
         0.0 │ No suitable match found
 """
         report.add_report_element(
@@ -1551,7 +1616,7 @@ Similarity Percent  :   How similar are the two tables in terms of columns.
             data=[
                 [f"Source Model Files ({len(self._source_files_processed)})", "\n".join(self._source_files_processed)],
                 [f"Target Model Files ({len(self._target_files_processed)})", "\n".join(self._target_files_processed)],
-                ["Source Business Model", self._general_config.get('FILE_LOCATIONS').get('BUSINESS_MODEL')]
+                ["Source Business Model", self._general_config.get('FILE_LOCATIONS').get('BUSINESS_MODEL_FOLDER')]
             ]
         ))
 
@@ -1591,6 +1656,10 @@ class connection_migrator:
         # Load the target dbschema model
         self.target_model = dbschema_model(self._general_config.get('FILE_LOCATIONS').get(
             'TARGET_MODEL_FOLDER'), self._general_config, self._source_config, self._target_config)
+
+        # Debugging
+        # self.source_model.write_to_csv('./projects/cmc/output/falcon.csv')
+        # self.target_model.write_to_csv('./projects/cmc/output/redshift.csv')
 
         # Initialise the mapping details
         self.mapping_details = mapping_details(
@@ -1659,18 +1728,28 @@ class connection_migrator:
         # Requirements:
         # - SOURCE_MODEL_FOLDER not empty
         # - TARGET_MODEL_FOLDER not empty
-        # - BUSINESS_MODEL exists
+        # - BUSINESS_MODEL_FOLDER exists
 
         if len(os.listdir(self._general_config.get('FILE_LOCATIONS').get('SOURCE_MODEL_FOLDER'))) == 0:
             output_message(
                 ("No source model(s) specified in ",
-                 self._general_config.get('FILE_LOCATIONS').get('SOURCE_MODEL_FOLDER')))
-        elif len(os.listdir(self._general_config.get('FILE_LOCATIONS').get('TARGET_MODEL_FOLDER'))) == 0:
+                 self._general_config.get('FILE_LOCATIONS').get('SOURCE_MODEL_FOLDER')), "error")
+
+        if len(os.listdir(self._general_config.get('FILE_LOCATIONS').get('TARGET_MODEL_FOLDER'))) == 0:
             output_message(
                 ("No target model(s) specified in ",
-                 self._general_config.get('FILE_LOCATIONS').get('TARGET_MODEL_FOLDER')))
-        elif not Path(self._general_config.get('FILE_LOCATIONS').get('BUSINESS_MODEL')).is_file():
-            output_message(f"{self._general_config.get('FILE_LOCATIONS').get('BUSINESS_MODEL')} does not exist")
+                 self._general_config.get('FILE_LOCATIONS').get('TARGET_MODEL_FOLDER')), "error")
+
+        model_found = False
+        for file in os.listdir(self._general_config.get('FILE_LOCATIONS').get('BUSINESS_MODEL_FOLDER')):
+            if file.endswith(".xls"):
+                model_found = True
+                break
+
+        if not model_found:
+            output_message(
+                f"No business model specified in {self._general_config.get('FILE_LOCATIONS').get('BUSINESS_MODEL_FOLDER')}",
+                "error")
         else:
             output_message("Start comparing data models....")
             # ============
@@ -1730,11 +1809,13 @@ class connection_migrator:
                             # Initialise mapping record
                             mapping_records = self.mapping_details.get('DDL', 'TABLE', db, s, t)
                             if len(mapping_records) > 0 and mapping_records[0].status == 'OVERRIDE':
+                                output_message('Found an override entry for this table')
                                 table_mapping_record = mapping_records[0]
                                 db_match = table_mapping_record.tar_database
                                 s_match = table_mapping_record.tar_schema
                                 t_match = table_mapping_record.tar_table
                             else:
+                                output_message('No mapping details available yet')
                                 table_mapping_record = mapping_record(
                                     mapping_category="DDL",
                                     mapping_type="TABLE",
@@ -1743,6 +1824,7 @@ class connection_migrator:
                                     src_table=t)
 
                             if table_mapping_record.status != "OVERRIDE":
+                                output_message("Trying to fuzzy match table")
                                 # Identify tables with the same columns, which has not already been used
                                 # in another mapping
                                 db_match = None
@@ -1753,6 +1835,8 @@ class connection_migrator:
                                         db, s, t), self.mapping_details, 'DDL')
 
                                 if matching_tables:
+                                    output_message(
+                                        f"Found a match with score: {matching_tables['rank']} => {matching_tables['database']}.{matching_tables['schema']}.{matching_tables['table']}")
                                     table_mapping_record.rank = matching_tables['rank']
                                     db_match = matching_tables['database']
                                     s_match = matching_tables['schema']
@@ -1764,6 +1848,7 @@ class connection_migrator:
                                             f"{db}.{s}.{t}",
                                             f"{matching_tables['status_msg']}, please review", "3-LOW")
                                 else:
+                                    output_message('No suitable matching table could be found.')
                                     self.mapping_details.add_comment(
                                         f"{db}.{s}.{t}", "No suitable matching table could be found",
                                         "1-SEVERE")
@@ -1946,10 +2031,10 @@ class connection_migrator:
             self.mapping_details.export()
 
     def migrate_yaml(self):
-        if not Path(self._general_config['FILE_LOCATIONS']['SRC_YAML_FILE_NAME']).is_file():
-            output_message(
-                f"Source YAML file {self._general_config['FILE_LOCATIONS']['SRC_YAML_FILE_NAME']} does not exist!")
-        elif not self.mapping_details.has_issues() > 0:
+        # if not Path(self._general_config['FILE_LOCATIONS']['SRC_YAML_FOLDER']).is_file():
+        #     output_message(
+        #         f"Source YAML file {self._general_config['FILE_LOCATIONS']['SRC_YAML_FOLDER']} does not exist!")
+        if not self.mapping_details.has_issues() > 0:
             connections = connections_yaml(
                 self._general_config,
                 self._source_config,

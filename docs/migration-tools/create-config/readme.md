@@ -55,9 +55,9 @@ SOURCE_MODEL_FOLDER = "./projects/cmc/input/models/falcon/"
 # Folder where the target model files will be placed (*.dbs/*.csv)
 TARGET_MODEL_FOLDER = "./projects/cmc/input/models/target/"
 # Folder where the business model downloaded from the source platform (falcon) will be placed
-BUSINESS_MODEL = "./projects/cmc/input/business_model/model.xls"
-# File Spec (folder+name) of the source remapping.yaml file
-SRC_YAML_FILE_NAME = "./projects/cmc/input/connections_yaml/org_cmc_dummy_connection.yaml"
+BUSINESS_MODEL_FOLDER = "./projects/cmc/input/business_model/"
+# Folder of the source remapping.yaml file
+SRC_YAML_FOLDER = "./projects/cmc/input/connections_yaml/"
 # File Spec (folder+name) of the output comparison report
 DDL_COMPARISON_REPORT = './projects/cmc/output/ddl_comparison.txt'
 # File Spec (folder+name) of the output remapped yaml file

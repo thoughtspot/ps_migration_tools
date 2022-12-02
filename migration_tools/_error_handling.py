@@ -55,7 +55,7 @@ class EYAMLPreparationError(ENonCriticalError):
         super().__init__()
         self.message = "Errors occurred during YAML preparation:\n"
         for e in error_list:
-            self.message += {e} + "\n"
+            self.message += ''.join(e) + "\n"
 
 
 class EDatabaseNotSupported(ENonCriticalError):
@@ -64,3 +64,11 @@ class EDatabaseNotSupported(ENonCriticalError):
         super().__init__()
         self.message = f"The database platform selected {cdp_name} is not (yet) supported. " + \
             "Contact the migration_tools team to get it implemented.\n"
+
+
+class EInputFilesMissing(ENonCriticalError):
+
+    def __init__(self, file_type, path):
+        super().__init__()
+        self.message = f"The required {file_type} was not found in folder: " + \
+            "{path}. Please place it there and try again\n"
