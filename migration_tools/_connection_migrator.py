@@ -965,8 +965,8 @@ class connections_yaml:
         t_cnt = len([t for t in self.contents['table']])
         c_cnt = len([c for t in self.contents['table'] for c in t['column']])
 
-        job1 = job_progress.add_task("Processing table mappings", total=t_cnt)
-        job2 = job_progress.add_task("Processing column mappings", total=c_cnt)
+        job_tables = job_progress.add_task("Processing table mappings", total=t_cnt)
+        job_columns = job_progress.add_task("Processing column mappings", total=c_cnt)
 
         total = sum(task.total for task in job_progress.tasks)
         overall_progress = Progress()
@@ -1041,7 +1041,7 @@ class connections_yaml:
                                  f"{table['external_table']['db_name']}.{table['external_table']['schema_name']}.",
                                  f"{table['external_table']['table_name']} in override file"))
                         if not overall_progress.finished:
-                            job_progress.advance(job2)
+                            job_progress.advance(job_columns)
                             completed = sum(task.completed for task in job_progress.tasks)
                             overall_progress.update(overall_task, completed=completed)
 
@@ -1088,7 +1088,7 @@ class connections_yaml:
                                      f"{table['external_table']['db_name']}.{table['external_table']['schema_name']}.",
                                      f"{table['external_table']['table_name']} in override file")))
                             if not overall_progress.finished:
-                                job_progress.advance(job2)
+                                job_progress.advance(job_columns)
                                 completed = sum(task.completed for task in job_progress.tasks)
                                 overall_progress.update(overall_task, completed=completed)
 
@@ -1161,11 +1161,11 @@ class connections_yaml:
                                         tar_schema=tar_tables_with_matching_columns['schema'],
                                         tar_table=tar_tables_with_matching_columns['table'],
                                         tar_column=c_mapping['column_name'],
-                                        tar_datatype=self._target_config['DATATYPE_MAPPINGS']
-                                        [c_mapping['dt'].format_type(True)]['YAML_TYPE'],
-                                        tar_datatype_length=None, tar_datatype_decimal=None))
+                                        tar_datatype=c_mapping['dt'].basetype,
+                                        tar_datatype_length=c_mapping['dt'].length,
+                                        tar_datatype_decimal=c_mapping['dt'].decimal))
                             if not overall_progress.finished:
-                                job_progress.advance(job2)
+                                job_progress.advance(job_columns)
                                 completed = sum(task.completed for task in job_progress.tasks)
                                 overall_progress.update(overall_task, completed=completed)
 
@@ -1196,12 +1196,12 @@ class connections_yaml:
                                     tar_datatype=col['data_type'],
                                     tar_datatype_length=None, tar_datatype_decimal=None))
                             if not overall_progress.finished:
-                                job_progress.advance(job2)
+                                job_progress.advance(job_columns)
                                 completed = sum(task.completed for task in job_progress.tasks)
                                 overall_progress.update(overall_task, completed=completed)
 
                 if not overall_progress.finished:
-                    job_progress.advance(job1)
+                    job_progress.advance(job_tables)
                     completed = sum(task.completed for task in job_progress.tasks)
                     overall_progress.update(overall_task, completed=completed)
 
@@ -1215,10 +1215,6 @@ class connections_yaml:
         elapsed_time = round(et - st, 1)
         status_msg = f"Migration completed in {elapsed_time} seconds."
         output_message(status_msg, "success" if yaml_validated else "error")
-
-        # TODO: Check the defaults for yaml issues in override, they use YAML/SOURCE data types
-        # if
-        # self._general_config.get('MODEL_VALIDATION').get('COPY_SOURCE_DEF_WHEN_NOT_FOUND'):
 
         if not yaml_validated:
             raise EYAMLValidationError(self._general_config)
@@ -1756,7 +1752,7 @@ class connection_migrator:
                 "error")
         else:
             output_message("Start comparing data models....")
-            # ============
+
             job_progress = Progress(
                 "{task.description}",
                 SpinnerColumn(),
@@ -1764,18 +1760,12 @@ class connection_migrator:
                 TextColumn("[progress.percentage]{task.percentage:>3.0f}%"),
             )
 
-            # TODO: use stats function and maybe include columns?
-            d_cnt = len([d for d in self.source_model.model])
-            s_cnt = len([s for d in self.source_model.model for s in self.source_model.model[d]['schemas']])
-            t_cnt = len(
-                [s
-                 for d in self.source_model.model
-                 for s in self.source_model.model[d]['schemas']
-                 for t in self.source_model.model[d]['schemas'][s]])
+            stats = self.source_model.get_stats()
 
-            job1 = job_progress.add_task("Validating Databases", total=d_cnt)
-            job2 = job_progress.add_task("Validating Schemas", total=s_cnt)
-            job3 = job_progress.add_task("Validating Tables", total=t_cnt)
+            job_databases = job_progress.add_task("Validating Databases", total=stats['db_cnt'])
+            job_schemas = job_progress.add_task("Validating Schemas", total=stats['sch_cnt'])
+            job_tables = job_progress.add_task("Validating Tables", total=stats['tbl_cnt'])
+            job_columns = job_progress.add_task("Validating Columns", total=stats['col_cnt'])
 
             total = sum(task.total for task in job_progress.tasks)
             overall_progress = Progress()
@@ -1950,7 +1940,10 @@ class connection_migrator:
                                                             status=table_mapping_record.status)
 
                                         self.mapping_details.merge_record(column_mapping_record)
-                                        # raise Exception
+                                    if not overall_progress.finished:
+                                        job_progress.advance(job_columns)
+                                        completed = sum(task.completed for task in job_progress.tasks)
+                                        overall_progress.update(overall_task, completed=completed)
 
                             else:
                                 # Table does not exist, we are going to export it for confirmation, for ease we are
@@ -1994,20 +1987,25 @@ class connection_migrator:
                                     if column_mapping_record.status != 'OVERRIDE':
                                         self.mapping_details.merge_record(column_mapping_record)
 
+                                    if not overall_progress.finished:
+                                        job_progress.advance(job_columns)
+                                        completed = sum(task.completed for task in job_progress.tasks)
+                                        overall_progress.update(overall_task, completed=completed)
+
                             self.mapping_details.merge_record(table_mapping_record)
 
                             if not overall_progress.finished:
-                                job_progress.advance(job3)
+                                job_progress.advance(job_tables)
                                 completed = sum(task.completed for task in job_progress.tasks)
                                 overall_progress.update(overall_task, completed=completed)
 
                         if not overall_progress.finished:
-                            job_progress.advance(job2)
+                            job_progress.advance(job_schemas)
                             completed = sum(task.completed for task in job_progress.tasks)
                             overall_progress.update(overall_task, completed=completed)
 
                     if not overall_progress.finished:
-                        job_progress.advance(job1)
+                        job_progress.advance(job_databases)
                         completed = sum(task.completed for task in job_progress.tasks)
                         overall_progress.update(overall_task, completed=completed)
 
@@ -2035,9 +2033,6 @@ class connection_migrator:
             self.mapping_details.export()
 
     def migrate_yaml(self):
-        # if not Path(self._general_config['FILE_LOCATIONS']['SRC_YAML_FOLDER']).is_file():
-        #     output_message(
-        #         f"Source YAML file {self._general_config['FILE_LOCATIONS']['SRC_YAML_FOLDER']} does not exist!")
         if not self.mapping_details.has_issues() > 0:
             connections = connections_yaml(
                 self._general_config,
@@ -2053,7 +2048,3 @@ class connection_migrator:
 
         else:
             raise EModelValidationError(self.mapping_details.has_issues(), self._general_config)
-
-# TODO: Small/Large for numeric data types (and others)
-# TODO: Single test for table compare
-# TODO: Summerize per error type?
