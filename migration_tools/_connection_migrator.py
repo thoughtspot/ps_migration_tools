@@ -1880,34 +1880,20 @@ class connection_migrator:
 
                                     if column_mapping_record.status != 'OVERRIDE':
                                         c_match = None
-                                        if c.casefold() in [c.casefold()
-                                                            for c in self.target_model.model[db_match]['schemas']
-                                                            [s_match][t_match]]:
+                                        if MigrationUtils.fuzzy_strip(c.casefold()) in [MigrationUtils.fuzzy_strip(
+                                            c.casefold())
+                                                for c in self.target_model.model[db_match]['schemas'][s_match][t_match]]:
                                             column_mapping_record.update(tar_column=c)
                                             c_match = [
                                                 c1
-                                                for c1 in self.target_model.model[db_match]['schemas']
-                                                [s_match][t_match] if c1.casefold() == c.casefold()][0]
+                                                for c1 in self.target_model.model[db_match]['schemas'][s_match]
+                                                [t_match]
+                                                if MigrationUtils.fuzzy_strip(c1.casefold()) == MigrationUtils.fuzzy_strip(
+                                                    c.casefold())][0]
                                         else:
-                                            src_cols = sorted(
-                                                self.source_model.get_column_list_for_table(
-                                                    db, s, t))
-                                            tar_cols = sorted(self.target_model.get_column_list_for_table(
-                                                db_match, s_match, t_match))
-                                            missing_tar = (set(src_cols).difference(tar_cols))
-                                            missing_src = (set(tar_cols).difference(src_cols))
-
                                             self.mapping_details.add_comment(
                                                 f"{db}.{s}.{t}",
-                                                f"Column {c} (or anything matching) has not been found." +
-                                                f"\n{len(missing_tar)} columns appearing in source " +
-                                                f"{db}.{s}.{t} which do not appear in the target " +
-                                                f"{db_match}.{s_match}.{t_match} " +
-                                                f"({','.join(missing_tar)})" +
-                                                f"\n{len(missing_src)} columns appearing in target " +
-                                                f"{db_match}.{s_match}.{t_match} which do not " +
-                                                f"appear in the source {db}.{s}.{t} " +
-                                                f"({','.join(missing_src)})", "1-SEVERE")
+                                                f"Column {c} (or anything matching) has not been found.", "1-SEVERE")
 
                                         if c_match is not None:
                                             dt_val = self.source_model.model[db]['schemas'][s][t][c].compare(

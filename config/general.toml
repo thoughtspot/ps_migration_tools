@@ -29,7 +29,7 @@ SRC_YAML_FOLDER = "$data_dir/input/connections_yaml/"
 # File Spec (folder+name) of the output comparison report
 DDL_COMPARISON_REPORT = '$data_dir/output/ddl_comparison.txt'
 # File Spec (folder+name) of the output remapped yaml file
-TAR_YAML_FILE_NAME = "$data_dir/output/remapped_org_cmc_dummy_connection.yaml"
+TAR_YAML_FILE_NAME = "$data_dir/output/remapped_connection.yaml"
 # File Spec (folder+name) of the override csv file
 MANUAL_OVERRIDES = "$data_dir/output/mapping_overrides.csv"
 

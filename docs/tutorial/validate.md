@@ -84,7 +84,7 @@ We are going to start with the first issue report for mapping table DEC_ENG_RAF_
 
 ![](./tutorial_ddl_report_5.png)
 
-We see here that it is only reported as a minor issue. And the issue is that the process could not find a perfect match, but via its fuzzy matching algorithm it did find a good candidate. It found a table which has a different name DEC_ENG_RAF_LIST_ALTERED, but has the same matching columns. It generated a score of 40, as the initial score was 50, but that has been reduced based on the similarity of the table name.
+We see here that it is only reported as a minor issue. And the issue is that the process could not find a perfect match, but via its fuzzy matching algorithm it did find a good candidate. It found a table which has a different name DEC_ENG_RAF_LIST_ALTERED, but has the same matching columns. It generated a score of 83, as the initial score was 75, but that has been increased based on the similarity of the table name.
 
 If we are happy, with this suggestion we can confirm it by marking it in the override file and run the process again. How to mark suggestions in the override file we will see in the next section, after we have reviewed all the issues.
 
@@ -106,7 +106,7 @@ Now let's look at the RPT_DEBT table, as it was reported there was a problem the
 
 Note that this mapping still has a score of 100 as it was able to work out what the correct target table is, but there is a different issue here and that is that the data types don't match. The column BUSINESS_DATE is defined as DATE on the source model, but on the target it is defined as a VARCHAR(100) and these are not compatible. This is probably the most common issue in validations and this command will find them all.
 
-The resolution here is to inform the client that they will need to change the target data type. But you don't have to wait for them to actual complete it, you can actually correct it yourself in the target model and continue your validation.
+The resolution here is to inform the client that they will need to change the target data type. And we can confirm this change in the override file later.
 
 Now let's move on to the severe issues. The first one is reported on FalconUserDataDataBase.FalconUserDataSchema.USERDATA-00790dd7-b08d-4b4c-b895-1501183a3fa9, which is a user uploaded table.
 
@@ -132,7 +132,7 @@ The override contains the following columns:
 
 | Column Name          | Description                                                                                    |
 | -------------------- | ---------------------------------------------------------------------------------------------- |
-| mapping_category     | Legacy, always DDL, will be removed at some point                                              |
+| mapping_category     | DDL or YAML, depends on which process added this mapping row                                   |
 | mapping_type         | Either TABLE or COLUMN, TABLE for just the table mapping, COLUMN for the column mappings       |
 | src_database         | Name of the source database                                                                    |
 | src_schema           | Name of the source schema                                                                      |
