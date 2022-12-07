@@ -1557,7 +1557,10 @@ Scoring explained:
             headers=['Qualified Table Name', 'Severe Issues', 'Medium Issues', 'Minor Issues'],
             data=issue_summary_data,
             footers=['TOTAL', totals['1-SEVERE'], totals['2-MEDIUM'], totals['3-LOW']],
-            msg_if_empty="Source and target model have been successfully validated and no issues have been found."
+            msg_if_empty="\n" +
+            "**************************************************************************************************\n" +
+            "* SUCCESS: Source and target model have been successfully validated and no issues have been found.\n"
+            "**************************************************************************************************\n"
         ))
 
         report.add_report_element(report_section_title('Model Comparison - Detailed Results per table', True))
