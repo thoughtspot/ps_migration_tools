@@ -97,15 +97,15 @@ nav:
     - Convert DDLs: migration-tools/convert-ddls/readme.md
     - Validate Models: migration-tools/validate-models/readme.md
     - YAML Migrate: migration-tools/migrate-yaml/readme.md
-    - Deltas: migration-tools/deltas/README.md
-    - Migrate Answers: migration-tools/answers/README.md
-    - Migrate Liveboards: migration-tools/liveboards/README.md
-    - Migrate Worksheets: migration-tools/worksheets/README.md
-    - Transfer Ownership: migration-tools/ownership/README.md
-    - Apply Tags: migration-tools/tags/README.md
-    - Share Permissions: migration-tools/share-permissions/README.md
-    - 🔐 Deploy: migration-tools/deploy/README.md
-    - 🔐 Compare Environments: migration-tools/compare/README.md
+    - Deltas: migration-tools/deltas/readme.md
+    - Migrate Answers: migration-tools/answers/readme.md
+    - Migrate Liveboards: migration-tools/liveboards/readme.md
+    - Migrate Worksheets: migration-tools/worksheets/readme.md
+    - Transfer Ownership: migration-tools/ownership/readme.md
+    - Apply Tags: migration-tools/tags/readme.md
+    - Share Permissions: migration-tools/share-permissions/readme.md
+    - 🔐 Deploy: migration-tools/deploy/readme.md
+    - 🔐 Compare Environments: migration-tools/compare/readme.md
   - Changelog:
     - v1.0.0: changelog/1.0.0.md
   - 🤓:
