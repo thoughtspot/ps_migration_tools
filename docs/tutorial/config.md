@@ -12,7 +12,7 @@ There is a command in migration_tools, which will take care of that for you and 
 You can run the following command to set up the structure and template configuration file for a project called **myfirstproject**
 
 ```bash
-poetry run migration_tools create_config --cfg-name myfirstproject
+migration_tools create_config --cfg-name myfirstproject
 ```
 
 If everything went well, the following message will be presented on your screen:
@@ -40,4 +40,19 @@ TARGET_PLATFORM="REDSHIFT"
 With these configuration setting made, we are ready to do some model validations.
 ## Configuring for delta migrations etc
 
-Coming soon
+In the folder projects/myfirstproject/config/ a template configuration file has been created for your project with the name myfirstproject.toml. You will now need to tweak these settings for the needs of your project. Please see the command [create-config](../../migration-tools/create-config/readme) for more details on the various configuration settings. 
+In order to be able to run delta migrations you will need to fill in the delta migration parameters like source/destination url, credentials etc.
+
+In this example we are doing a migration from Falcon to Cloud, so we set the SOURCE_TS_URL to the URL of our FALCON instance and the DEST_TS_URL to the URL of the cloud instance. 
+
+In general we can migrate tml objects from any TS instance to another. 
+
+```toml
+[DELTA_MIGRATION]
+SOURCE_TS_URL = "https://mycompany.thoughtspot.com"
+SOURCE_USERNAME = "tsadmin"
+SOURCE_PASSWORD = "password"
+DEST_TS_URL = "https://mycompany.thoughtspot.cloud"
+DEST_USERNAME = "tsadmin"
+DEST_PASSWORD = "password"
+```
