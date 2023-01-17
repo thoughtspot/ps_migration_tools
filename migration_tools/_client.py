@@ -50,8 +50,9 @@ class HTTPClient(httpx.Client):
         r = self.get("/callosum/v1/tspublic/v1/group")
         return r
 
-    def users(self) -> httpx.Response:
-        r = self.get("/callosum/v1/tspublic/v1/user")
+    def users(self,user_name) -> httpx.Response:
+        p = {"name": user_name}
+        r = self.get("/callosum/v1/tspublic/v1/user",params=p)
         return r
 
     def user_list(self) -> httpx.Response:
@@ -68,6 +69,20 @@ class HTTPClient(httpx.Client):
         return r
 
     # parameterized METADATA/LISTOBJECTHEADERS
+    def metadata_user_list(self) -> httpx.Response:
+        p = {'type': 'USER','category': 'ALL','sort': 'DEFAULT','offset': '-1','showhidden': 'false','batchsize': '-1'}
+        r = self.get("/callosum/v1/tspublic/v1/metadata/list", params=p)
+        return r
+    
+    def tag_list(self) -> httpx.Response:
+        p = {'type': 'TAG','category': 'ALL','sort': 'DEFAULT','offset': '-1','showhidden': 'false','batchsize': '-1'}
+        r = self.get("/callosum/v1/tspublic/v1/metadata/list", params=p)
+        return r
+
+    def metadata_group_list(self) -> httpx.Response:
+        p = {'type': 'USER_GROUP','category': 'ALL','sort': 'DEFAULT','offset': '-1','showhidden': 'false','batchsize': '-1'}
+        r = self.get("/callosum/v1/tspublic/v1/metadata/list", params=p)
+        return r
 
     def pinboard_list(self) -> httpx.Response:
         p = {'type': 'PINBOARD_ANSWER_BOOK','category': 'ALL','sort': 'DEFAULT','offset': '-1','showhidden': 'false','batchsize': '-1'}
@@ -107,8 +122,13 @@ class HTTPClient(httpx.Client):
     # create users 
 
     def create_user(self, UserName: str,DisplayName: str, group_guids: List[str] ) -> httpx.Response:
-        d = {'name': UserName,'password': 'fdajkfj45fLKK','displayname': DisplayName,'groups': '[' + ','.join(group_guids) + ']','usertype': 'LOCAL_USER','visibility': 'DEFAULT'}
-        r = self.post("/callosum/v1/tspublic/v1/metadata/tml/export", data=d)
+        d = {'name': UserName,'password': 'fdajkfj!45fLKK','displayname': DisplayName,'groups': '[' + ','.join(group_guids) + ']','usertype': 'LOCAL_USER','visibility': 'DEFAULT'}
+        r = self.post("/callosum/v1/tspublic/v1/user", data=d)
+        return r
+
+    def create_group(self, UserName: str,DisplayName: str ,DESC: str) -> httpx.Response:
+        d = {'name': UserName,'display_name': DisplayName,'description': DESC,'grouptype': 'LOCAL_GROUP','visibility': 'DEFAULT'}
+        r = self.post("/callosum/v1/tspublic/v1/group", data=d)
         return r
 
     # tml export import
