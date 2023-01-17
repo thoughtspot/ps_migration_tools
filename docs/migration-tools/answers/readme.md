@@ -13,3 +13,7 @@ arguments:
   
                         
 ~~~
+## CLI preview
+=== "migrate_answers --help"
+  
+    ![](./migrate_answers.png)

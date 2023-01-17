@@ -92,12 +92,14 @@ nav:
     - "Running a Model validation": tutorial/validate.md
     - "Remapping a Connection File": tutorial/remapping.md
     - "Delta Migration Workflow": tutorial/delta_migration.md
-  - Tools:
+  - Migration Validation:
     - migration-tools/overview.md
     - Create Config: migration-tools/create-config/readme.md
     - Convert DDLs: migration-tools/convert-ddls/readme.md
     - Validate Models: migration-tools/validate-models/readme.md
     - YAML Migrate: migration-tools/migrate-yaml/readme.md
+  - Delta Migration:
+    - Create Config: migration-tools/create-config/readme.md
     - Deltas: migration-tools/deltas/readme.md
     - Migrate Answers: migration-tools/answers/readme.md
     - Migrate Liveboards: migration-tools/liveboards/readme.md
@@ -105,8 +107,8 @@ nav:
     - Transfer Ownership: migration-tools/ownership/readme.md
     - Apply Tags: migration-tools/tags/readme.md
     - Share Permissions: migration-tools/share-permissions/readme.md
-    - 🔐 Deploy: migration-tools/deploy/readme.md
-    - 🔐 Compare Environments: migration-tools/compare/readme.md
+    - 🔐 Create Users: migration-tools/users/readme.md
+    - 🔐 Create Groups: migration-tools/groups/readme.md
   - Changelog:
     - v1.0.0: changelog/1.0.0.md
   - 🤓:

@@ -12,3 +12,7 @@ arguments:
   --backup-date       Date when DL backup was taken (i.e. 2022-12-31).
    
 ~~~
+## CLI preview
+=== "deltas --help"
+  
+    ![](./deltas.png)

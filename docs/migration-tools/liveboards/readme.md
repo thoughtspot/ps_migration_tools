@@ -13,3 +13,8 @@ arguments:
   
                         
 ~~~
+## CLI preview
+=== "migrate_liveboards --help"
+  
+
+    ![](./migrate_liveboards.png)
