@@ -540,7 +540,22 @@ class dbschema_model:
             f'Executing fuzzy match for table {source_db}.{source_schema}.{source_table} with columns {",".join(source_column_list)}')
 
         output_message('Considering tables:')
+        output_message(','.join(source_column_list))
 
+        output_message(
+            ','.join(
+                self.get_column_list_for_table(
+                    'just-data-warehouse',
+                    'thoughtspot',
+                    'dummy_restaurants')))
+
+        # output_message(self.get_column_list_for_table(tdatabase, tschema, ttable))
+        ttt = [f"{tdatabase}.{tschema}.{ttable}" for tdatabase in self.model
+               for tschema in self.model[tdatabase]['schemas']
+               for ttable in self.model[tdatabase]['schemas'][tschema]]
+
+        # This goes wrong when there is a (user uploaded) table which does not exist in source and no match can be found
+        # for example, the column names are too different or there are more columns in source than on target
         output_message(','.join([f"{tdatabase}.{tschema}.{ttable} ({mapping_details.table_available_for_matching(mapping_category, tdatabase, tschema, ttable)}) " for tdatabase in self.model
                                  for tschema in self.model[tdatabase]['schemas']
                                  for ttable in self.model[tdatabase]['schemas'][tschema]
@@ -555,7 +570,6 @@ class dbschema_model:
                                       for c2 in self.get_column_list_for_table(tdatabase, tschema, ttable)]
                                      for elem in [MigrationUtils.fuzzy_strip(c1) for c1 in source_column_list])
                                  ]))
-
         # --------------------------------------------------------------------------------------------------
         # Ranking explained:
         #       100.0 : Perfect match: same table name (case insensitive),
@@ -932,7 +946,8 @@ class connections_yaml:
         # for table in self.contents['table']:
         yaml_tables = [
             f"{st['external_table']['db_name'].lower()}.{st['external_table']['schema_name'].lower()}." +
-            f"{st['external_table']['table_name'].lower()}" for st in self.contents['table']]
+            f"{st['external_table']['falcon_table'].lower()}" for st in self.contents['table']]
+        # f"{st['external_table']['table_name'].lower()}" for st in self.contents['table']]
         src_tables = [
             f"{d.lower()}.{s.lower()}.{t.lower()}"
             for d in self.source_model.model
@@ -1170,8 +1185,11 @@ class connections_yaml:
                                 overall_progress.update(overall_task, completed=completed)
 
                     else:
+                        print("KOMEN WE HIER?")
+                        print(table['external_table'])
                         self.mapping_details.merge_record(
-                            table_mapping_record=mapping_record(
+                            # table_mapping_record=mapping_record(
+                            mapping_record(
                                 mapping_category="YAML", mapping_type="TABLE",
                                 src_database=table['external_table']['falcon_db'],
                                 src_schema=table['external_table']['falcon_schema'],
@@ -1179,6 +1197,7 @@ class connections_yaml:
                                 tar_database=table['external_table']['falcon_db'],
                                 tar_schema=table['external_table']['falcon_schema'],
                                 tar_table=table['external_table']['falcon_schema']))
+                        print("en HIER?")
                         for col in table['column']:
                             self.mapping_details.merge_record(
                                 mapping_record(

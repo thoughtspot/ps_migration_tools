@@ -1448,6 +1448,17 @@ optional = false
 python-versions = ">=3.6"
 
 [[package]]
+name = "sqlglot"
+version = "10.4.2"
+description = "An easily customizable SQL parser and transpiler"
+category = "main"
+optional = false
+python-versions = "*"
+
+[package.extras]
+dev = ["autoflake", "black", "duckdb", "isort", "mypy", "pandas", "pdoc", "pre-commit", "pyspark", "python-dateutil"]
+
+[[package]]
 name = "stack-data"
 version = "0.5.1"
 description = "Extract data from python stack frames and tracebacks for informative displays"
@@ -1678,7 +1689,7 @@ testing = ["func-timeout", "jaraco.itertools", "pytest (>=6)", "pytest-black (>=
 [metadata]
 lock-version = "1.1"
 python-versions = "^3.9"
-content-hash = "e0723337243912ba3c7d5b662bfae00421310b76a7f1014d3c7d0fb573670813"
+content-hash = "d02f717fcdaea1a88c1317d6dc58f1a0f35c35f558257c873a5daa618c819dd3"
 
 [metadata.files]
 anyio = [
@@ -2609,6 +2620,10 @@ sniffio = [
 soupsieve = [
     {file = "soupsieve-2.3.2.post1-py3-none-any.whl", hash = "sha256:3b2503d3c7084a42b1ebd08116e5f81aadfaea95863628c80a3b774a11b7c759"},
     {file = "soupsieve-2.3.2.post1.tar.gz", hash = "sha256:fc53893b3da2c33de295667a0e19f078c14bf86544af307354de5fcf12a3f30d"},
+]
+sqlglot = [
+    {file = "sqlglot-10.4.2-py3-none-any.whl", hash = "sha256:3fb0ef86b0cdf52edf72e9db03f4c9c0e1e76aee92b440760879171bff319115"},
+    {file = "sqlglot-10.4.2.tar.gz", hash = "sha256:e194ea34db58609484f29fcb49ebae77e6b740c67337d51a70e5b407aa3ada27"},
 ]
 stack-data = [
     {file = "stack_data-0.5.1-py3-none-any.whl", hash = "sha256:5120731a18ba4c82cefcf84a945f6f3e62319ef413bfc210e32aca3a69310ba2"},
