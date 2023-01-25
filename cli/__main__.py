@@ -8,6 +8,7 @@ import toml
 import typer
 import pytz
 import os
+import json
 from migration_tools import HTTPClient, connection_migrator, ENonCriticalError, EDBSchemaNotInstalled, EDatabaseNotSupported
 from ._util import State
 from ._ux import comment, console, output_message
@@ -22,13 +23,23 @@ from rich.progress import track
 from rich.table import Table
 from rich.progress import Progress
 from time import sleep
+try: 
+    from thoughtspot_tml.utils import determine_tml_type
+    #from thoughtspot_tml import Table
+    from thoughtspot_tml import Worksheet
+    from thoughtspot_tml import Liveboard
+    from thoughtspot_tml import Answer
+except:
+    print("thoughtspot_tml couldn't be imported please install the package by running: pip install git+https://github.com/thoughtspot/thoughtspot_tml.git@build-spec")
 urllib3.disable_warnings()
 
 
 log = logging.getLogger(__name__)
 
 app = typer.Typer(
-    help="""Migration tools.""",
+    help="""Migration tools.
+    https://thoughtspot.github.io/ps_migration_tools/
+    """,
     add_completion=False,
     no_args_is_help=True,
     # global settings
@@ -120,7 +131,18 @@ def setup_folder_structure(data_dir, cfg_name):
         Path(data_dir).joinpath("output/delta_migrations/all_objects"),
         Path(data_dir).joinpath("output/delta_migrations/modified"),
         Path(data_dir).joinpath("output/delta_migrations/cs_tools_falcon"),
-        Path(data_dir).joinpath("output/delta_migrations/cs_tools_cloud")
+        Path(data_dir).joinpath("output/delta_migrations/cs_tools_cloud"),
+        Path(data_dir).joinpath("output/delta_migrations/info"),
+        Path(data_dir).joinpath("output/delta_migrations/tml_export"),
+        Path(data_dir).joinpath("output/delta_migrations/tml_export/answers"),
+        Path(data_dir).joinpath("output/delta_migrations/tml_export/liveboards"),
+        Path(data_dir).joinpath("output/delta_migrations/tml_export/worksheets"),
+        Path(data_dir).joinpath("output/delta_migrations/tml_export/answers/createad"),
+        Path(data_dir).joinpath("output/delta_migrations/tml_export/liveboards/created"),
+        Path(data_dir).joinpath("output/delta_migrations/tml_export/worksheets/created"),
+        Path(data_dir).joinpath("output/delta_migrations/tml_export/answers/modified"),
+        Path(data_dir).joinpath("output/delta_migrations/tml_export/liveboards/modified"),
+        Path(data_dir).joinpath("output/delta_migrations/tml_export/worksheets/modified")
     ]
 
     for folder in folders_to_create:
@@ -196,7 +218,7 @@ def sync_users(
         pass
         console.print("wrong parameter specified for sync-type! Choose either all or created",style='warning')
     def process_data():
-        sleep(0.4)
+        sleep(2)
 
 
     #for _ in track(range(len(users)), description=f'[green]Gathering {sync_type} users'):
@@ -415,7 +437,7 @@ def gather_deltas(
     user_id_mapping.rename(columns = {'id_x':'id_user_old', 'id_y':'id_user_new'}, inplace = True)
     group_id_mapping.rename(columns = {'id_x':'id_group_old', 'id_y':'id_group_new'}, inplace = True)
     user_id_mapping.to_csv(data_dir + "/"   "user_id_mapping.csv", **file_args)
-    group_id_mapping.to_csv(data_dir   + "group_id_mapping.csv", **file_args)
+    group_id_mapping.to_csv(data_dir   + "/group_id_mapping.csv", **file_args)
     
     # Get Userlist
     df = pd.json_normalize(ts.metadata_user_list().json(),record_path='headers')
@@ -557,7 +579,7 @@ def migrate_answers(
     Migrates all created/modified answers from source to destination cluster
     """
     table = Table(show_header=True, header_style='bold #2070b2',
-                title='[bold]Migrated Objects',expand= True,show_lines=True, row_styles=['#F0F0F8'] )
+                title='[bold]Migrated Answers',expand= True,show_lines=True, row_styles=['#F0F0F8'] )
     table.add_column('assigned GUID', justify='left',width=60)
     table.add_column('Name', justify='left',width=80)
     table.add_column('Status', justify='center',width=30)
@@ -636,6 +658,7 @@ def migrate_answers(
                         pass
                 except BaseException:
                     pass
+            Answer.loads(json.dumps(tml)).dump(f"{data_dir}/tml_export/answers/{migration_mode}/{object_name}_{object_guid}.answer.tml")
             UploadObject = ps.metadata_tml_import(tml, create_new_on_server=create_new, validate_only=Validate)
             #print("Status:")
             logging.info(UploadObject['object'][0]['response']['status'])
@@ -646,6 +669,8 @@ def migrate_answers(
             OwnerList.append(Owner)
             new_guid = UploadObject['object'][0]['response']['header']['id_guid']
             map_guid.append([object_guid, new_guid, owner_name, object_name, object_type])
+            tag_name = 'migration_tools'
+            ps.metadata_assigntag(object_guids=['{}'.format(new_guid)],object_type=[f'{object_type}'],tag_names=[tag_name])
 
             table.add_row( new_guid,  object_name, '✅')
 
@@ -697,7 +722,7 @@ def migrate_liveboards(
     Migrates all created/modified liveboards from source to destination cluster
     """
     table = Table(show_header=True, header_style='bold #2070b2',
-                title='[bold]Migrated Objects',expand= True,show_lines=True, row_styles=['#F0F0F8'] )
+                title='[bold]Migrated Liveboards',expand= True,show_lines=True, row_styles=['#F0F0F8'] )
     table.add_column('assigned GUID', justify='left',width=60)
     table.add_column('Name', justify='left',width=80)
     table.add_column('Status', justify='center',width=30)
@@ -742,7 +767,7 @@ def migrate_liveboards(
         header=[0],
         delimiter='|')
     LiveboardList = NewLiveboardsDf['id'].to_list()
-    LiveboardList = LiveboardList[:8]
+    #LiveboardList = LiveboardList[:8]
     NewObjectsList = []
     OwnerList = []
     FailedToLoad = []
@@ -773,6 +798,7 @@ def migrate_liveboards(
                     except BaseException:
                         pass
             try:
+                Liveboard.loads(json.dumps(tml)).dump(f"{data_dir}/tml_export/liveboards/{migration_mode}/{object_name}_{object_guid}.liveboard.tml")
                 UploadObject = ps.metadata_tml_import(tml, create_new_on_server=create_new, validate_only=Validate)
                 logging.info("Status:")
                 logging.info(UploadObject['object'][0]['response']['status'])
@@ -783,6 +809,8 @@ def migrate_liveboards(
                 OwnerList.append(Owner)
                 new_guid = UploadObject['object'][0]['response']['header']['id_guid']
                 map_guid.append([object_guid, new_guid, owner_name, object_name, object_type])
+                tag_name = 'migration_tools'
+                ps.metadata_assigntag(object_guids=['{}'.format(new_guid)],object_type=[f'{object_type}'],tag_names=[tag_name])
                 table.add_row( new_guid,  object_name, '✅')
                 if Validate == True:
                     logging.info(
@@ -835,7 +863,7 @@ def migrate_worksheets(
     Migrates all created/modified worksheets from source to destination cluster
     """
     table = Table(show_header=True, header_style='bold #2070b2',
-                title='[bold]Migrated Objects',expand= True,show_lines=True, row_styles=['#F0F0F8'] )
+                title='[bold]Migrated Worksheets',expand= True,show_lines=True, row_styles=['#F0F0F8'] )
     table.add_column('assigned GUID', justify='left',width=60)
     table.add_column('Name', justify='left',width=80)
     table.add_column('Status', justify='center',width=30)
@@ -883,29 +911,38 @@ def migrate_worksheets(
     OwnerList = []
     FailedToLoad = []
     map_guid = []
-    for GUID in WorksheetList:
+    for GUID in track(WorksheetList, description=f'[green]Migration/Validation of {len(WorksheetList)} {migration_mode} Worksheets'):
         object_guid = GUID
         try:
             object_type = 'LOGICAL_TABLE'
             object_name = NewWorksheetsDf.loc[NewWorksheetsDf['id'] == GUID, 'name'].item()
             owner_name = NewWorksheetsDf.loc[NewWorksheetsDf['id'] == GUID, 'authorName'].item()
             tml = ts.metadata_tml_export(guid=GUID)
-            print("Export for " + '{}.Worksheet.tml'.format(object_name) + " successfull")
+            logging.info("Export for " + '{}.Worksheet.tml'.format(object_name) + " successfull")
+            Worksheet.loads(json.dumps(tml)).dump(f"{data_dir}/tml_export/worksheets/{migration_mode}/{object_name}_{object_guid}.worksheet.tml")
             UploadObject = ps.metadata_tml_import(tml, create_new_on_server=create_new, validate_only=Validate)
-            # print("Status:")
-            print(UploadObject['object'][0]['response']['status'])
-            #print("New GUID assigned:")
-            # print(UploadObject['object'][0]['response']['header']['id_guid'])
+            
+            
+            logging.info(UploadObject['object'][0]['response']['status'])
+            
             NewObjectsList.append(UploadObject['object'][0]['response']['header']['id_guid'])
             #owner_name = UploadObject['object'][0]['response']['header']['owner_guid']
-            new_guid = UploadObject['object'][0]['response']['header']['id_guid']
-            map_guid.append([object_guid, new_guid, owner_name, object_name, object_type])
+            try:
+                new_guid = UploadObject['object'][0]['response']['header']['id_guid']
+                map_guid.append([object_guid, new_guid, owner_name, object_name, object_type])
+            except:
+                logging.info("couldn't assign new guid, object already present in target environment")
+                new_guid = ''
+            table.add_row( new_guid,  object_name, '✅')
+            tag_name = 'migration_tools'
+            ps.metadata_assigntag(object_guids=['{}'.format(new_guid)],object_type=[f'{object_type}'],tag_names=[tag_name])
             if Validate == True:
-                console.print("Validation for " + '{}.Worksheet.tml'.format(object_name) + " successfull", style="info")
+                logging.info("Validation for " + '{}.Worksheet.tml'.format(object_name) + " successfull")
             else:
-                console.print("Imported " + '{}.Worksheet.tml'.format(object_name) + " successfully", style="info")
+                logging.info("Imported " + '{}.Worksheet.tml'.format(object_name) + " successfully")
         except Exception as e:
-            console.print("couldn't save {}.Worksheet.tml".format(object_name), style="error")
+            table.add_row( object_guid,  object_name, '❌')
+            logging.info("couldn't save {}.Worksheet.tml".format(object_name))
             FailedToLoad.append([object_guid, owner_name, object_name, object_type])
             print(str(e))
             pass
@@ -918,11 +955,13 @@ def migrate_worksheets(
         df_failed.to_csv(data_dir + "/info/" + 'worksheet_failed.csv', index=False, encoding='UTF8')
     else:
         pass
-    print("Finished Migration/Validation of " + str(len(worksheet_author)) + " objects")
-    if len(df_failed) == 0:
-        console.print(str(len(df_failed)) + " Errors detected", style="info")
-    else:
-        console.print(str(len(df_failed)) + " Errors detected", style="error")
+    logging.info("Finished Migration/Validation of " + str(len(worksheet_author)) + " objects")
+    if(len(df_failed)) > 0:
+        error_handler = 'error'
+    else: 
+        error_handler = 'success'
+    console.print(str(len(df_failed)) + " Error(s) detected",style=f'{error_handler}')
+    console.print(table)
 
 
 @app.command(name="transfer_ownership")
@@ -938,6 +977,7 @@ def transfer_ownership(
     """
     Transfers the ownership from tsadmin to the actual user
     """
+    output_message("🔑Transferring Ownership for all kind of objects",'success')
     get_cfg(cfg_name)
     log.info(f"Transfering Ownership for new objects")
     ts = HTTPClient(ts_url=dest_ts_url)
@@ -948,18 +988,23 @@ def transfer_ownership(
     object_author_table = (
         pd.read_csv(data_dir + "/info/" + 'answer_author.csv', header=[0])
     )
-
+    
     try:
-        print("reading liveboards")
+        logging.info("reading liveboards")
         liveboard_author = pd.read_csv(data_dir + "/info/" + 'liveboard_author.csv', header=[0])
-        #print(liveboard_author)
         object_author_table = pd.concat([object_author_table, liveboard_author], ignore_index=True, sort=False)
         console.print("append liveboard authors to object author table", style="info")
     except Exception:
         console.print("WARNING: liveboard author table not present, please migrate liveboards first", style="warning")
-    #print(object_author_table)
+    try:
+        logging.info("reading worksheet")
+        worksheet_author = pd.read_csv(data_dir + "/info/" + 'worksheet_author.csv', header=[0])
+        object_author_table = pd.concat([object_author_table, worksheet_author], ignore_index=True, sort=False)
+        console.print("append worksheet authors to object author table", style="info")
+    except Exception:
+        console.print("WARNING: worksheet author table not present, please migrate worksheets first", style="warning")
 
-    #object_author_table = object_author_table.replace('@','%40', regex=True)
+
     for i in range(len(object_author_table)):
         ObjGUID = object_author_table['new_guid'].iloc[i]
         FromUser = f'{dest_username}'
@@ -967,13 +1012,19 @@ def transfer_ownership(
 
         try:
             t = ts.transfer_ownership(FromUser, ToUser, ObjGUID)
-            # console.print(str(t),style="info")
+            logging.info(str(t))
+            name_string = object_author_table['object_name'].iloc[i]
+            length_string = 30 - len(name_string)
             console.print(
-                "[green][bold]Successfully[/green][/bold] transfered Ownership for " +
-                object_author_table['object_name'].iloc[i] +
-                " from [bold]" +
+                str(i+1)+ ". "+
+                "[green][bold]✅[/green][/bold] ---> [bold][cyan]" +
+                object_author_table['object_type'].iloc[i] + "[/bold][/cyan]: "+
+                name_string[0:29] +
+                ""
+                + " "*length_string +
+                " from [bold][cyan]" +
                 FromUser +
-                "[/bold] to [bold]" +
+                "[/bold][/cyan] to [bold][cyan]" +
                 ToUser)
         except Exception as e:
             console.print(f"failed to assign authorship: {e}",style ='error')
@@ -1056,51 +1107,46 @@ def share_permissions(
         print(e.response.content)
     # Start
     group_map = (
-        pd.read_csv(data_dir + "/" + "output/delta_migrations" + "/" + 'group_id_mapping.csv', header=[0], delimiter='|')
+        pd.read_csv(data_dir  + "/" + 'group_id_mapping.csv', header=[0], delimiter='|')
         .pipe(comment, msg="Reading group mapping table")
     )
     user_map = (
-        pd.read_csv(data_dir + "/" + "output/delta_migrations" + "/" + 'user_id_mapping.csv', header=[0], delimiter='|')
+        pd.read_csv(data_dir + "/" + 'user_id_mapping.csv', header=[0], delimiter='|')
         .pipe(comment, msg="Reading user mapping table")
     )
     # read all ownerships
+    output_message("🔑Sharing content with users & groups for all kind of objects",'success')
 
-    permissions_df = pd.read_csv(
-        data_dir +
-        "/" +
-        "cs_tools_falcon" +
-        "/" +
-        'ts_sharing_access.csv',
-        header=[0],
-        delimiter='|')
-    new_objects = (
-        pd.read_csv(data_dir + "/" + "info" + "/" + 'ownership.csv', header=[0], delimiter='|')
-        .pipe(comment, msg="Reading object information")
-        .merge(permissions_df, how="inner", left_on='object_guid', right_on='old_guid')
-        .merge(user_map, how="left", left_on='shared_to_user_guid', right_on='id_x')
-        .merge(group_map, how="left", left_on='shared_to_group_guid', right_on='id_x')
-    )
-    new_objects.to_csv(data_dir + "/" + "info" + "/" + "sharing_permissions.csv", index=False, encoding='utf8')
-    sharing_df = new_objects
-    # loop through sharing dataframe:
-    for i in range(len(sharing_df)):
-        try:
-            if pd.isnull(sharing_df['shared_to_group_guid'].iloc[i]):
-                user_guid = sharing_df['shared_to_user_guid'].iloc[i]
-                object_guid = sharing_df['new_guid'].iloc[i]
-                share_user_name = sharing_df['username'].iloc[i]
-            else:
-                user_guid = sharing_df['shared_to_group_guid'].iloc[i]
-                object_guid = sharing_df['new_guid'].iloc[i]
-                share_user_name = sharing_df['group_name'].iloc[i]
-            sharing_type = sharing_df['share_mode'].iloc[i]
-            object_type = sharing_df['object_type'].iloc[i]
-            perms = {"permissions": {"{}".format(user_guid): {"shareMode": "{}".format(sharing_type)}}}
-            ts.security_share(shared_object_type=object_type, shared_object_guids=[object_guid], permissions=perms)
-            print("shared " + sharing_df['object_name'].iloc[i] + ' with ' + user_guid)
-        except BaseException:
-            print("failed to share" + object_guid + " with " + share_user_name)
-            pass
+    permissions_df = pd.read_csv(data_dir +"/cs_tools_falcon/ts_sharing_access.csv",header=[0],delimiter='|')
+    for object_type in track(['answer','liveboard','worksheet'], description=f'[green]Sharing Content...'):
+        new_objects = (
+            pd.read_csv(data_dir + "/" + "info" + "/" + f'{object_type}_author.csv', header=[0], delimiter=',')
+            .pipe(comment, msg="Reading object information")
+            .merge(permissions_df, how="inner", left_on='old_guid', right_on='object_guid')
+            .merge(user_map, how="left", left_on='shared_to_user_guid', right_on='id_user_old')
+            .merge(group_map, how="left", left_on='shared_to_group_guid', right_on='id_group_old')
+        )
+        new_objects.to_csv(data_dir + "/" + "info" + "/" + "sharing_permissions.csv", index=False, encoding='utf8')
+        sharing_df = new_objects
+        # loop through sharing dataframe:
+        for i in range(len(sharing_df)):
+            try:
+                if pd.isnull(sharing_df['shared_to_group_guid'].iloc[i]):
+                    user_guid = sharing_df['id_user_new'].iloc[i]
+                    object_guid = sharing_df['new_guid'].iloc[i]
+                    #share_user_name = sharing_df['user_name_y'].iloc[i]
+                else:
+                    user_guid = sharing_df['id_group_new'].iloc[i]
+                    object_guid = sharing_df['new_guid'].iloc[i]
+                    #share_user_name = sharing_df['group_name_y'].iloc[i]
+                sharing_type = sharing_df['share_mode'].iloc[i]
+                object_type = sharing_df['object_type'].iloc[i]
+                perms = {"permissions": {"{}".format(user_guid): {"shareMode": "{}".format(sharing_type)}}}
+                ts.security_share(shared_object_type=object_type, shared_object_guids=[object_guid], permissions=perms)
+                logging.info("shared " + sharing_df['object_name'].iloc[i] + ' with ' + user_guid)
+            except BaseException:
+                logging.info("failed to share" + object_guid + " with " +  user_guid)
+                pass
 
 
 def _load_environment_defaults(context_settings: dict[str, Any]) -> None:
