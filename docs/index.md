@@ -7,9 +7,13 @@ migration workflows. Some functionalities require also the installation of [cs_t
 ## Installing & Getting Started
 
 The `migration_tools` CLI requires at least __`python` version 3.9__ to run.
-
+1. Download the zip file and unzip it
 ```shell
+$ cd Downloads/ps_migration_tools-main
 $ python -m venv .ts-mig
 $ source .ts-mig/bin/activate  # or windows:    .ts-mig/Scripts/activate 
-(.ts-mig) $ pip install https://github.com/thoughtspot/ps_migration_tools
+(.ts-mig) $ pip install .
+```
+Docs: [Migration_tools](https://thoughtspot.github.io/ps_migration_tools/)
+
 ```
