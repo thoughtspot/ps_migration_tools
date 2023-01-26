@@ -137,7 +137,7 @@ def setup_folder_structure(data_dir, cfg_name):
         Path(data_dir).joinpath("output/delta_migrations/tml_export/answers"),
         Path(data_dir).joinpath("output/delta_migrations/tml_export/liveboards"),
         Path(data_dir).joinpath("output/delta_migrations/tml_export/worksheets"),
-        Path(data_dir).joinpath("output/delta_migrations/tml_export/answers/createad"),
+        Path(data_dir).joinpath("output/delta_migrations/tml_export/answers/created"),
         Path(data_dir).joinpath("output/delta_migrations/tml_export/liveboards/created"),
         Path(data_dir).joinpath("output/delta_migrations/tml_export/worksheets/created"),
         Path(data_dir).joinpath("output/delta_migrations/tml_export/answers/modified"),
@@ -434,8 +434,8 @@ def gather_deltas(
     
     user_id_mapping = map_users(cfg_name)
     group_id_mapping = map_groups(cfg_name)
-    user_id_mapping.rename(columns = {'id_x':'id_user_old', 'id_y':'id_user_new'}, inplace = True)
-    group_id_mapping.rename(columns = {'id_x':'id_group_old', 'id_y':'id_group_new'}, inplace = True)
+    user_id_mapping.rename(columns = {'id_x':'id_user_old','name':'user_name', 'id_y':'id_user_new'}, inplace = True)
+    group_id_mapping.rename(columns = {'id_x':'id_group_old','name':'group_name', 'id_y':'id_group_new'}, inplace = True)
     user_id_mapping.to_csv(data_dir + "/"   "user_id_mapping.csv", **file_args)
     group_id_mapping.to_csv(data_dir   + "/group_id_mapping.csv", **file_args)
     
@@ -1092,6 +1092,8 @@ def add_tags(
 def share_permissions(
     ctx: typer.Context,
     cfg_name: str = typer.Option(..., help="Name of config file"),
+    sharing_mode: str = typer.Option(..., help="Specify if you want to share the delta or all objects"),
+    validation_mode: str = typer.Option(..., help="Validate only [True,False]"),
     #dest_ts_url: str = typer.Option(..., help="URL of your ThoughtSpot cluster"),
     #dest_username: str = typer.Option(..., help="username of your source cluster"),
     #dest_password: str = typer.Option(..., help="password of your source cluster"),
@@ -1117,8 +1119,28 @@ def share_permissions(
     # read all ownerships
     output_message("🔑Sharing content with users & groups for all kind of objects",'success')
 
+    ## Permissions for new objects
+    metadata = pd.read_csv(data_dir +"/cs_tools_falcon/ts_metadata_object.csv",header=[0],delimiter='|')
     permissions_df = pd.read_csv(data_dir +"/cs_tools_falcon/ts_sharing_access.csv",header=[0],delimiter='|')
-    for object_type in track(['answer','liveboard','worksheet'], description=f'[green]Sharing Content...'):
+    #### ----> existing objects:
+    modified_objects = (
+            pd.read_csv(data_dir +"/cs_tools_falcon/ts_sharing_access.csv",header=[0],delimiter='|')
+            .pipe(comment, msg="Reading object information")
+            .merge(metadata, how="left", on='object_guid')
+            .merge(user_map, how="left", left_on='shared_to_user_guid', right_on='id_user_old')
+            .merge(group_map, how="left", left_on='shared_to_group_guid', right_on='id_group_old')
+        )
+    modified_objects['new_guid'] = modified_objects['object_guid']
+    modified_objects.to_csv(data_dir + "/" + "info" + "/" + "sharing_permissions_modified.csv", index=False, encoding='utf8')
+    if sharing_mode == 'delta':
+        object_list = ['answer','liveboard','worksheet']
+    elif sharing_mode == 'all':
+        object_list = ['answer']
+    else:
+        output_message("no valid sharing-mode specified choose either all or delta",'error')
+
+    for object_type in object_list:
+        ##### ---> new objects
         new_objects = (
             pd.read_csv(data_dir + "/" + "info" + "/" + f'{object_type}_author.csv', header=[0], delimiter=',')
             .pipe(comment, msg="Reading object information")
@@ -1126,26 +1148,45 @@ def share_permissions(
             .merge(user_map, how="left", left_on='shared_to_user_guid', right_on='id_user_old')
             .merge(group_map, how="left", left_on='shared_to_group_guid', right_on='id_group_old')
         )
-        new_objects.to_csv(data_dir + "/" + "info" + "/" + "sharing_permissions.csv", index=False, encoding='utf8')
-        sharing_df = new_objects
+
+        
+        new_objects.to_csv(data_dir + "/" + "info" + "/" + f"sharing_permissions_{object_type}.csv", index=False, encoding='utf8')
+        
+        if sharing_mode == 'delta':
+            sharing_df = new_objects
+            ob_name = 'object_name'
+        elif sharing_mode == 'all':
+            sharing_df = modified_objects
+            ob_name = 'name'
+        else: 
+            output_message("specify a valid value for sharing-mode i.e. [delta,all]",'error')
+
+
+
+
         # loop through sharing dataframe:
-        for i in range(len(sharing_df)):
+        for i in track(range(len(sharing_df)), description=f'[green]Sharing Content...{object_type}'):
             try:
                 if pd.isnull(sharing_df['shared_to_group_guid'].iloc[i]):
                     user_guid = sharing_df['id_user_new'].iloc[i]
                     object_guid = sharing_df['new_guid'].iloc[i]
-                    #share_user_name = sharing_df['user_name_y'].iloc[i]
+                    share_user_name = sharing_df['user_name'].iloc[i]
+                    ot = 'user'
                 else:
                     user_guid = sharing_df['id_group_new'].iloc[i]
                     object_guid = sharing_df['new_guid'].iloc[i]
-                    #share_user_name = sharing_df['group_name_y'].iloc[i]
+                    share_user_name = sharing_df['group_name'].iloc[i]
+                    ot = 'group'
                 sharing_type = sharing_df['share_mode'].iloc[i]
                 object_type = sharing_df['object_type'].iloc[i]
                 perms = {"permissions": {"{}".format(user_guid): {"shareMode": "{}".format(sharing_type)}}}
-                ts.security_share(shared_object_type=object_type, shared_object_guids=[object_guid], permissions=perms)
-                logging.info("shared " + sharing_df['object_name'].iloc[i] + ' with ' + user_guid)
+                if validation_mode == 'False':
+                    ts.security_share(shared_object_type=object_type, shared_object_guids=[object_guid], permissions=perms)
+                    logging.info("shared " + sharing_df[f'{ob_name}'].iloc[i] + ' with ' + share_user_name)
+                else:
+                    logging.info("validated sharing task for " + sharing_df[f'{ob_name}'].iloc[i] + ' with ' + share_user_name)
             except BaseException:
-                logging.info("failed to share" + object_guid + " with " +  user_guid)
+                logging.info("failed to share" + object_guid + f" with {ot}" +  str(share_user_name))
                 pass
 
 
