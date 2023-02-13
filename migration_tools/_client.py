@@ -114,6 +114,41 @@ class HTTPClient(httpx.Client):
         r = self.get("/callosum/v1/tspublic/v1/metadata/list", params=p)
         return r
 
+    ##### 7.1.1 section #####
+
+    def groups_7(self) -> httpx.Response:
+        r = self.get("/callosum/v1/tspublic/v1/group")
+        return r
+
+    def users_7(self) -> httpx.Response:
+        r = self.get("/callosum/v1/tspublic/v1/user")
+        return r
+
+    def pinboard_list_7(self) -> httpx.Response:
+        p = {"type": "PINBOARD_ANSWER_BOOK", "offset": -1, "batchsize": 4000}
+        r = self.get("/callosum/v1/tspublic/v1/metadata/listobjectheaders", params=p)
+        return r
+
+    def answer_list_7(self) -> httpx.Response:
+        p = {"type": "QUESTION_ANSWER_BOOK", "offset": -1, "batchsize": -1}
+        r = self.get("/callosum/v1/tspublic/v1/metadata/listobjectheaders", params=p)
+        return r
+
+    def worksheet_list_7(self) -> httpx.Response:
+        p = {"type": "LOGICAL_TABLE", "subtypes": '[WORKSHEET]', "offset": -1, "batchsize": -1}
+        r = self.get("/callosum/v1/tspublic/v1/metadata/listobjectheaders", params=p)
+        return r
+
+    def table_list_7(self) -> httpx.Response:
+        p = {"type": "LOGICAL_TABLE", "subtypes": "[ONE_TO_ONE_LOGICAL]", "offset": -1, "batchsize": -1}
+        r = self.get("/callosum/v1/tspublic/v1/metadata/listobjectheaders", params=p)
+        return r
+
+    def view_list_7(self) -> httpx.Response:
+        p = {"type": "LOGICAL_TABLE", "subtypes": "[AGGR_WORKSHEET]", "offset": -1, "batchsize": -1}
+        r = self.get("/callosum/v1/tspublic/v1/metadata/listobjectheaders", params=p)
+        return r
+
     # get tags
     def get_tags(self) -> httpx.Response:
         p = {'type': 'TAG','category': 'ALL','sort': 'DEFAULT','offset': '-1','showhidden': 'false'}

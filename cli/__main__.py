@@ -23,6 +23,7 @@ from rich.progress import track
 from rich.table import Table
 from rich.progress import Progress
 from time import sleep
+import requests
 try: 
     from thoughtspot_tml.utils import determine_tml_type
     #from thoughtspot_tml import Table
@@ -307,6 +308,67 @@ def map_groups(cfg_name):
     group_ids.to_csv(data_dir + "/" + "group_id_mapping.csv", **file_args)
     return group_ids
 
+def map_users_7(cfg_name):
+    get_cfg(cfg_name)
+    file_args = {"sep": "|", "index": False, "encoding": "UTF-8"}
+    ts = HTTPClient(ts_url=source_ts_url)
+    r = ts.login(source_username, source_password)
+    r.raise_for_status()
+    falcon_users = pd.json_normalize(ts.users_7().json())
+    
+    (
+        falcon_users.to_csv(
+            data_dir + "/all_objects/" + "falcon_users.csv", **file_args
+        )
+    )
+    falcon_users = falcon_users[['header.id','header.name']]
+    falcon_users.rename(columns={"header.id": "id", "header.name": "name"}, inplace=True)
+    ps = HTTPClient(ts_url=dest_ts_url)
+    r = ps.login(dest_username, dest_password)
+    r.raise_for_status()
+    file_args = {"sep": "|", "index": False, "encoding": "UTF-8"}
+    cloud_users = pd.json_normalize(ps.users_7().json())
+    (
+        cloud_users.to_csv(
+            data_dir + "/all_objects/" + "cloud_users.csv", **file_args
+        )
+    )
+    cloud_users = cloud_users[['header.id','header.name']]
+    cloud_users.rename(columns={"header.id": "id", "header.name": "name"}, inplace=True)
+    user_ids = pd.merge(falcon_users, cloud_users, on="name")
+    user_ids.to_csv(data_dir + "/" + "user_id_mapping.csv", **file_args)
+    return user_ids
+
+def map_groups_7(cfg_name):
+    get_cfg(cfg_name)
+    file_args = {"sep": "|", "index": False, "encoding": "UTF-8"}
+    ts = HTTPClient(ts_url=source_ts_url)
+    r = ts.login(source_username, source_password)
+    r.raise_for_status()
+    falcon_groups = pd.json_normalize(ts.groups_7().json())
+    (
+        falcon_groups.to_csv(
+            data_dir + "/all_objects/" + "falcon_groups.csv", **file_args
+        )
+    )
+    falcon_groups = falcon_groups[['header.id','header.name']]
+    falcon_groups.rename(columns={"header.id": "id", "header.name": "name"}, inplace=True)
+    ps = HTTPClient(ts_url=dest_ts_url)
+    r = ps.login(dest_username, dest_password)
+    r.raise_for_status()
+    file_args = {"sep": "|", "index": False, "encoding": "UTF-8"}
+    cloud_groups = pd.json_normalize(ps.groups_7().json())
+    (
+        cloud_groups.to_csv(
+            data_dir + "/all_objects/" + "cloud_groups.csv", **file_args
+        )
+    )
+    cloud_groups = cloud_groups[['header.id','header.name']]
+    cloud_groups.rename(columns={"header.id": "id", "header.name": "name"}, inplace=True)
+    group_ids = pd.merge(falcon_groups, cloud_groups, on="name")
+    group_ids.to_csv(data_dir + "/" + "group_id_mapping.csv", **file_args)
+    return group_ids
+
 def get_cfg(cfg_name):
     # Load the general configuration (templates etc)
     general_config = toml.load("config/general.toml")
@@ -503,6 +565,116 @@ def gather_deltas(
             .pipe(comment, msg="Total number of {name}s: {df.index.size:,}", name=name)
             .merge(user_df, how="left", left_on="author", right_on="user_id")
             .rename(columns={"header.id": "id", "header.name": "name"})
+            .to_csv(data_dir + "/"  + f"/{subtype}/" + f"{name}_{subtype}.csv", **file_args)
+            )
+
+@ app.command(name="deltas7")
+def gather_deltas7(
+    ctx: typer.Context,
+    cfg_name: str = typer.Option(..., help="Name of config file"),
+    backup_date: dt.datetime = typer.Option("2012-11-01", help="date of the backup taken"),
+):
+    """ 
+    Gathers the delta between source and destination cluster based on the specified date version 7.1.1
+    """
+    file_args = {"sep": "|", "index": False, "encoding": "UTF-8"}
+    get_cfg(cfg_name)
+    output_message("Successfully included {}.toml".format(cfg_name), "success")
+    
+    #print(user_id_mapping.head())
+    # ensure_directories(data_dir)
+    log.info(f"Calculating deltas since {backup_date.date()}")
+    ts = HTTPClient(ts_url=source_ts_url)
+    r = ts.login(source_username, source_password)
+    r.raise_for_status()
+
+    # contextualize backup_date to the cluster's timezone
+    try:
+        r = ts.session_info()
+        tz_name = r.json()["timezone"]
+    except:
+        tz_name ="UTC"
+        pass
+    
+    backup_date = backup_date.replace(tzinfo=pytz.timezone(tz_name))
+
+    # .created, .modified are represented as timestamps in milleseconds
+    timestamp = backup_date.timestamp() * 1000
+
+    file_args = {"sep": "|", "index": False, "encoding": "UTF-8"}
+    
+    column_dir_mapping = {"created": "created", "modified": "modified"}
+    
+    user_id_mapping = map_users_7(cfg_name)
+    group_id_mapping = map_groups_7(cfg_name)
+    user_id_mapping.rename(columns = {'id_x':'id_user_old','name':'user_name', 'id_y':'id_user_new'}, inplace = True)
+    group_id_mapping.rename(columns = {'id_x':'id_group_old','name':'group_name', 'id_y':'id_group_new'}, inplace = True)
+    user_id_mapping.to_csv(data_dir + "/"   "user_id_mapping.csv", **file_args)
+    group_id_mapping.to_csv(data_dir   + "/group_id_mapping.csv", **file_args)
+    
+    # Get Userlist
+    df = pd.json_normalize(ts.users_7().json())
+    df.rename(columns={"header.created": "created", "header.modified": "modified"}, inplace=True)
+    (df.pipe(comment, msg="Total number of Users: {df.index.size:,}").to_csv(
+        data_dir + "/" + "users_all.csv", **file_args))
+
+    for column, sub_dir in column_dir_mapping.items():
+        (
+            df.query(f"{column} > @timestamp")
+            .pipe(comment, msg="  --> {column: >8}: {df.index.size:,}", column=column)
+            .to_csv(data_dir + "/" + sub_dir + "/" + f"users_{column}.csv", **file_args)
+        )
+    # Get Grouplist
+    df = pd.json_normalize(ts.groups_7().json())
+    df.rename(columns={"header.created": "created", "header.modified": "modified"}, inplace=True)
+    (df.pipe(comment, msg="Total number of Groups: {df.index.size:,}").to_csv(
+        data_dir + "/" + "users_all.csv", **file_args))
+
+    for column, sub_dir in column_dir_mapping.items():
+        (
+            df.query(f"{column} > @timestamp")
+            .pipe(comment, msg="  --> {column: >8}: {df.index.size:,}", column=column)
+            .to_csv(data_dir + "/" + sub_dir + "/" + f"groups_{column}.csv", **file_args)
+        )
+    # create mapping table to map User.id (guid) and User.name (username)
+    user_df = pd.json_normalize(ts.users_7().json())
+    user_df = user_df[['header.id','header.name']]
+    (
+        user_df.rename(columns={"header.id": "user_id", "header.name": "user_name"})
+        .to_csv(data_dir + "/" + "mapping_users.csv", **file_args)
+    )
+    
+    user_df.rename(columns={"header.id": "user_id", "header.name": "authorName"}, inplace=True)
+    # get high level information about metadata objects
+    metadata = {
+        #"Users": ts.metadata_user_list,
+        #"Groups": ts.metadata_group_list,
+        "Liveboard": ts.pinboard_list_7,
+        "Answer": ts.answer_list_7,
+        "System Table": ts.table_list_7,
+        "ThoughtSpot View": ts.view_list_7,
+        "Worksheet": ts.worksheet_list_7,
+    }
+    column_dir_mapping = {"created": "created", "modified": "modified"}
+    for name, ts_api_method in metadata.items():
+        df = (
+            pd.json_normalize(ts_api_method().json())
+            .pipe(comment, msg="Total number of {name}s: {df.index.size:,}", name=name)
+            #.merge(user_df, how="left", left_on="author", right_on="user_id")
+            #.rename(columns={"header.id": "id", "header.name": "name"})
+            .to_csv(data_dir + "/"  + "/all_objects/" + f"{name}.csv", **file_args)
+        )
+    for subtype in ['created','modified']:
+        console.print("------> " +f"{subtype}"+ " objects:",style="cyan bold")
+        for name, ts_api_method in metadata.items():
+            df = pd.json_normalize(ts_api_method().json())
+            df = df.query(f"{subtype} > @timestamp")
+            console.print(f"Number of {subtype} "+name+ "s: "+ str(len(df)))
+            (
+            df.query(f"{subtype} > @timestamp")
+            .pipe(comment, msg="Total number of {name}s: {df.index.size:,}", name=name)
+            .merge(user_df, how="left", left_on="author", right_on="user_id")
+            #.rename(columns={"header.id": "id", "header.name": "name"})
             .to_csv(data_dir + "/"  + f"/{subtype}/" + f"{name}_{subtype}.csv", **file_args)
             )
         
@@ -1102,6 +1274,7 @@ def share_permissions(
     """ """
     get_cfg(cfg_name)
     ts: TSRestApiV1 = TSRestApiV1(server_url=dest_ts_url)
+    ts.requests_session.verify = False
     try:
         ts.session_login(username=dest_username, password=dest_password)
     except requests.exceptions.HTTPError as e:
@@ -1120,7 +1293,7 @@ def share_permissions(
     output_message("🔑Sharing content with users & groups for all kind of objects",'success')
 
     ## Permissions for new objects
-    metadata = pd.read_csv(data_dir +"/cs_tools_falcon/ts_metadata_object.csv",header=[0],delimiter='|')
+    metadata = pd.read_csv(data_dir +"/cs_tools_cloud/ts_metadata_object.csv",header=[0],delimiter='|')
     permissions_df = pd.read_csv(data_dir +"/cs_tools_falcon/ts_sharing_access.csv",header=[0],delimiter='|')
     #### ----> existing objects:
     modified_objects = (
