@@ -25,13 +25,14 @@ from rich.progress import Progress
 from time import sleep
 import requests
 try: 
-    from thoughtspot_tml.utils import determine_tml_type
+    #from thoughtspot_tml.utils import determine_tml_type
     #from thoughtspot_tml import Table
     from thoughtspot_tml import Worksheet
     from thoughtspot_tml import Liveboard
     from thoughtspot_tml import Answer
+    from thoughtspot_tml import Table as tbl_tml
 except:
-    print("thoughtspot_tml couldn't be imported please install the package by running: pip install git+https://github.com/thoughtspot/thoughtspot_tml.git@build-spec")
+    print('thoughtspot_tml couldn ot be imported please install the package by running: pip install "thoughtspot_tml @ https://github.com/thoughtspot/thoughtspot_tml/archive/v2.0.1.zip"')
 urllib3.disable_warnings()
 
 
@@ -143,7 +144,12 @@ def setup_folder_structure(data_dir, cfg_name):
         Path(data_dir).joinpath("output/delta_migrations/tml_export/worksheets/created"),
         Path(data_dir).joinpath("output/delta_migrations/tml_export/answers/modified"),
         Path(data_dir).joinpath("output/delta_migrations/tml_export/liveboards/modified"),
-        Path(data_dir).joinpath("output/delta_migrations/tml_export/worksheets/modified")
+        Path(data_dir).joinpath("output/delta_migrations/tml_export/worksheets/modified"),
+        Path(data_dir).joinpath("output/delta_migrations/tml_export/tables"),
+        Path(data_dir).joinpath("output/delta_migrations/tml_export/tables/created"),
+        Path(data_dir).joinpath("output/delta_migrations/tml_export/original/Answer"),
+        Path(data_dir).joinpath("output/delta_migrations/tml_export/original/Liveboard"),
+        Path(data_dir).joinpath("output/delta_migrations/tml_export/tables/modified")
     ]
 
     for folder in folders_to_create:
@@ -177,29 +183,6 @@ def create_cfg(
             Template(general_config.get('TEMPLATES').get('PROJECT_CONFIG')).substitute(
                 {'data_dir': data_dir}))
 
-"""
-@ app.command(name="create_config_old")
-def create_cfg_old(
-    ctx: typer.Context,
-    cfg_name: str = typer.Option(..., help="Name of config file"),
-    source_ts_url: str = typer.Option(..., help="URL of your ThoughtSpot cluster"),
-    source_username: str = typer.Option(..., help="username of your source cluster"),
-    source_password: str = typer.Option(..., help="password of your source cluster"),
-    dest_ts_url: str = typer.Option(..., help="URL of your destination cluster"),
-    dest_username: str = typer.Option(..., help="username of your destination cluster"),
-    dest_password: str = typer.Option(..., help="password of your destination cluster"),
-    data_dir: pathlib.Path = typer.Option(..., help="directory to store output data in"),
-):
-    with open('{}.toml'.format(cfg_name), 'w') as f:
-        f.write("source_ts_url = '{}'\n".format(source_ts_url))
-        f.write("source_username = '{}'\n".format(source_username))
-        f.write("source_password = '{}'\n".format(source_password))
-        f.write("dest_ts_url = '{}'\n".format(dest_ts_url))
-        f.write("dest_username = '{}'\n".format(dest_username))
-        f.write("dest_password = '{}'\n".format(dest_password))
-        f.write("data_dir = '{}'\n".format(data_dir))
-"""
-
 @ app.command(name="sync_users")
 def sync_users(
     ctx: typer.Context,
@@ -232,12 +215,20 @@ def sync_users(
     r.raise_for_status()
     # Get Data
     t = Texttable()
+    try:
+        users.rename(columns={"header.name": "name", "header.displayName": "displayName"}, inplace=True)
+    except:
+        pass
+
     empty_table_list =[['index','username','display name','assigned groups']]
     for usr in track(range(len(users)), description=f'[bold green]Synchronising {sync_type} users'):
         username = users['name'].iloc[usr]
-        dis_name = users['displayName'].iloc[usr]
+        print(users['displayName'].iloc[usr])
+        print(type(users['displayName'].iloc[usr]))
+        #dis_name = users['displayName'].iloc[usr]
         assigned_groups = pd.json_normalize(ts.users(user_name = username).json())
         ass_grp = assigned_groups['assignedGroups'][0]
+        dis_name = assigned_groups['displayName'][0]
         if validate_only == 'no':
             ctu = ps.create_user(UserName= username,DisplayName= dis_name, group_guids= ass_grp )
             print(str(usr+1) +'. '+ username +' status: '+ str(ctu) )
@@ -249,6 +240,100 @@ def sync_users(
     t.set_cols_width([5, 30, 30, 40])    
     print(t.draw())        
     console.print("created {} new users on {}".format(len(users),dest_ts_url))
+
+@ app.command(name="remove_summary")
+def remove_summary(
+    ctx: typer.Context,
+    cfg_name: str = typer.Option(..., help="Name of config file"),
+    validate_only: str = typer.Option(..., help="yes/no"),
+    object_type: str = typer.Option(..., help="valid options: [Answers,Liveboards]"),
+):
+    """
+    Creating missing users on the destination cluster
+    """
+    get_cfg(cfg_name)
+    if validate_only =='no':
+        validate_flag = False
+    else:
+        validate_flag = True
+    ps: TSRestApiV1 = TSRestApiV1(server_url=dest_ts_url)
+    ps.requests_session.verify = False
+    try:
+        ps.session_login(username=dest_username, password=dest_password)
+        console.print("successfully logged in to " + dest_ts_url, style="success")
+    except requests.exceptions.HTTPError as e:
+        console.print(e, style="error")
+        print(e.response.content)
+    
+
+
+    if object_type == 'Answers':
+        # Get Data
+        #t = Texttable()
+        #empty_table_list =[['object name','type','#summaries','status']]
+        ### Upload 
+        Answers = pd.read_csv(f"{data_dir}/all_objects/Answer.csv", header=[0], delimiter='|')
+        Answers = Answers['id']
+
+        for answer in track(Answers, description='[cyan][bold]Removing headline aggregations for {} Answers'.format(len(Answers))):
+            GUID = answer
+            try:
+                tml = ps.metadata_tml_export(guid=GUID, export_fqn = True,export_associated= False)
+                Answer.loads(json.dumps(tml)).dump(f"{data_dir}/tml_export/original/Answer/{GUID}.answer.tml")
+            except Exception as e:
+                logging.info(str(e))
+                pass
+            for i in range(len(tml['answer']['table']['table_columns'])):
+                try:
+                    del tml['answer']['table']['table_columns'][i]['headline_aggregation']
+                    tml['answer']['table']['table_columns'][i]['show_headline'] = False
+                except:
+                    pass
+            #Answer.loads(json.dumps(tml)).dump("headline.answer.tml")
+            try:
+                UploadObject = ps.metadata_tml_import(tml, create_new_on_server=False, validate_only=validate_flag)
+            except Exception as e:
+                logging.info(str(e))
+                pass
+            logging.info(str(GUID)+' --> '+str(UploadObject['object'][0]['response']['status']))
+        output_message("Removed {} headline_aggregations from {}".format(len(Answers),dest_ts_url),'success')
+
+    elif object_type == 'Liveboards':   
+        Liveboards = pd.read_csv(f"{data_dir}/all_objects/Liveboard.csv", header=[0], delimiter='|')
+        Liveboards = Liveboards['id']
+
+        for Liveboard_guid in track(Liveboards, description='[cyan][bold]Removing headline aggregations for {} Liveboards'.format(len(Liveboards))):
+            GUID = Liveboard_guid
+            try:
+                tml = ps.metadata_tml_export(guid=GUID, export_fqn = True,export_associated= False)
+                Liveboard.loads(json.dumps(tml)).dump(f"{data_dir}/tml_export/original/Liveboard/{GUID}.liveboard.tml")
+            except Exception as e:
+                logging.info(str(e))
+                pass
+            for i in range(len(tml['liveboard']['visualizations'])):
+                for n in range(len(tml['liveboard']['visualizations'][i]['answer']['table']['table_columns'])):
+                    try:
+                        del tml['liveboard']['visualizations'][i]['answer']['table']['table_columns'][n]['headline_aggregation']
+                        tml['liveboard']['visualizations'][i]['answer']['table']['table_columns'][n]['show_headline'] = False
+                    except BaseException:
+                        pass
+            #Answer.loads(json.dumps(tml)).dump("headline.answer.tml")
+            try:
+                UploadObject = ps.metadata_tml_import(tml, create_new_on_server=False, validate_only=validate_flag)
+                logging.info(str(GUID)+' --> '+str(UploadObject['object'][0]['response']['status']))
+            except:
+                pass
+                logging.info(str(GUID)+' --> '+str(UploadObject['object'][0]['response']['status']))
+        output_message("Removed {} headline_aggregations from {}".format(len(Liveboards),dest_ts_url),'success')    
+    else:
+        pass
+        """
+        empty_table_list.append([])      
+        t.add_rows(empty_table_list)   
+        t.set_cols_width([5, 30, 30, 40])    
+        print(t.draw())    
+        """    
+        #output_message("Removed {} headline_aggregations from {}".format(len(Answers),dest_ts_url),'success')
 
 # local functions
 
@@ -700,11 +785,18 @@ def create_groups(
     filename = "groups_created.csv"
     file_args = {"sep": "|", "encoding": "UTF-8"}
     group_df = pd.read_csv(data_dir + "/" + group_dir + "/" + filename, **file_args)
-    group_df = group_df.rename(
-        columns={
-            "displayName": "group_displayName",
-            "name": "group_name",
-            "description": "group_description"})
+    try:
+        group_df = group_df.rename(
+            columns={
+                "displayName": "group_displayName",
+                "name": "group_name",
+                "description": "group_description"})
+    except:
+        group_df = group_df.rename(
+            columns={
+                "header.displayName": "group_displayName",
+                "header.name": "group_name",
+                "header.description": "group_description"})
     with Progress() as progress:
 
         task1 = progress.add_task("[cyan bold]Loading Groups...", total=100)
@@ -842,7 +934,8 @@ def migrate_answers(
             new_guid = UploadObject['object'][0]['response']['header']['id_guid']
             map_guid.append([object_guid, new_guid, owner_name, object_name, object_type])
             tag_name = 'migration_tools'
-            ps.metadata_assigntag(object_guids=['{}'.format(new_guid)],object_type=[f'{object_type}'],tag_names=[tag_name])
+
+            
 
             table.add_row( new_guid,  object_name, '✅')
 
@@ -850,6 +943,7 @@ def migrate_answers(
                 logging.info("Validation for " + '{}.answer.tml'.format(object_name) + " successfull")
                 pass
             else:
+                ps.metadata_assigntag(object_guids=['{}'.format(new_guid)],object_type=[f'{object_type}'],tag_names=[tag_name])
                 logging.info("Imported " + '{}.answer.tml'.format(object_name) + " successfully")
                 pass
         except Exception as e:
@@ -859,20 +953,22 @@ def migrate_answers(
             object_name = object_name.replace("/", "")
             print(object_name)
             #dictionary_data = tml
-            map_failed_guid.append([object_guid, owner_name, object_name, object_type])
+            error_code = str(e)
+            map_failed_guid.append([object_guid, owner_name, object_name, object_type, error_code])
             table.add_row( object_guid,  object_name, '❌')
             #a_file = open(".//failed_answers//{}.Answer.tml_{}".format(object_name,GUID), "wb")
             #pickle.dump(dictionary_data, a_file)
             # a_file.close()
             pass
     df = pd.DataFrame(map_guid, columns=["old_guid", "new_guid", "owner", "object_name", "object_type"])
-    df_failed = pd.DataFrame(map_failed_guid, columns=["old_guid", "owner", "object_name", "object_type"])
+    df_failed = pd.DataFrame(map_failed_guid, columns=["old_guid", "owner", "object_name", "object_type","error_code"])
     FailedToLoadAnswer = FailedToLoad
     answer_author = df
     if Validate == False:
         answer_author.to_csv(data_dir + "/info/" + 'answer_author.csv', index=False, encoding='UTF8')
         df_failed.to_csv(data_dir + "/info/" + 'answer_failed.csv', index=False, encoding='UTF8')
     else:
+        df_failed.to_csv(data_dir + "/info/" + 'answer_failed.csv', index=False, encoding='UTF8')
         pass
 
     output_message(f"Finished {mode_type} of " + str(len(answer_author)) + " objects","success")
@@ -961,9 +1057,9 @@ def migrate_liveboards(
             for i in range(0, 100):
                 for n in range(0, 100):
                     try:
-                        if tml['pinboard']['visualizations'][i]['answer']['table']['table_columns'][n][
+                        if tml['liveboard']['visualizations'][i]['answer']['table']['table_columns'][n][
                                 'headline_aggregation'] == 'TABLE_AGGR':
-                            tml['pinboard']['visualizations'][i]['answer']['table']['table_columns'][n][
+                            tml['liveboard']['visualizations'][i]['answer']['table']['table_columns'][n][
                                 'headline_aggregation'] = 'SUM'
                         else:
                             pass
@@ -982,14 +1078,16 @@ def migrate_liveboards(
                 new_guid = UploadObject['object'][0]['response']['header']['id_guid']
                 map_guid.append([object_guid, new_guid, owner_name, object_name, object_type])
                 tag_name = 'migration_tools'
-                ps.metadata_assigntag(object_guids=['{}'.format(new_guid)],object_type=[f'{object_type}'],tag_names=[tag_name])
+                
                 table.add_row( new_guid,  object_name, '✅')
                 if Validate == True:
+
                     logging.info(
                         "Validation for " +
                         '{}.Liveboard.tml'.format(object_name) +
                         " successfull")
                 else:
+                    ps.metadata_assigntag(object_guids=['{}'.format(new_guid)],object_type=[f'{object_type}'],tag_names=[tag_name])
                     logging.info("Imported " + '{}.Liveboard.tml'.format(object_name) + " successfully")
             except Exception as e:
                 logging.info("couldn't import " + object_name)
@@ -1040,7 +1138,7 @@ def migrate_worksheets(
     table.add_column('Name', justify='left',width=80)
     table.add_column('Status', justify='center',width=30)
     get_cfg(cfg_name)
-    print("Starting Migration of {} answers in validation mode: {}".format(migration_mode, validation_mode))
+    print("Starting Migration of {} worksheets in validation mode: {}".format(migration_mode, validation_mode))
     ts: TSRestApiV1 = TSRestApiV1(server_url=source_ts_url)
     ts.requests_session.verify = False
     try:
@@ -1098,7 +1196,6 @@ def migrate_worksheets(
             logging.info(UploadObject['object'][0]['response']['status'])
             
             NewObjectsList.append(UploadObject['object'][0]['response']['header']['id_guid'])
-            #owner_name = UploadObject['object'][0]['response']['header']['owner_guid']
             try:
                 new_guid = UploadObject['object'][0]['response']['header']['id_guid']
                 map_guid.append([object_guid, new_guid, owner_name, object_name, object_type])
@@ -1107,20 +1204,22 @@ def migrate_worksheets(
                 new_guid = ''
             table.add_row( new_guid,  object_name, '✅')
             tag_name = 'migration_tools'
-            ps.metadata_assigntag(object_guids=['{}'.format(new_guid)],object_type=[f'{object_type}'],tag_names=[tag_name])
+            
             if Validate == True:
                 logging.info("Validation for " + '{}.Worksheet.tml'.format(object_name) + " successfull")
             else:
+                ps.metadata_assigntag(object_guids=['{}'.format(new_guid)],object_type=[f'{object_type}'],tag_names=[tag_name])
                 logging.info("Imported " + '{}.Worksheet.tml'.format(object_name) + " successfully")
         except Exception as e:
             table.add_row( object_guid,  object_name, '❌')
             logging.info("couldn't save {}.Worksheet.tml".format(object_name))
-            FailedToLoad.append([object_guid, owner_name, object_name, object_type])
-            print(str(e))
+            error_code = str(e)
+            FailedToLoad.append([object_guid, owner_name, object_name, object_type,error_code])
+            logging.info(str(e))
             pass
 
     df = pd.DataFrame(map_guid, columns=["old_guid", "new_guid", "owner", "object_name", "object_type"])
-    df_failed = pd.DataFrame(FailedToLoad, columns=["old_guid", "owner", "object_name", "object_type"])
+    df_failed = pd.DataFrame(FailedToLoad, columns=["old_guid", "owner", "object_name", "object_type","error_code"])
     worksheet_author = df
     if Validate == False:
         worksheet_author.to_csv(data_dir + "/info/" + 'worksheet_author.csv', index=False, encoding='UTF8')
@@ -1135,6 +1234,119 @@ def migrate_worksheets(
     console.print(str(len(df_failed)) + " Error(s) detected",style=f'{error_handler}')
     console.print(table)
 
+@app.command(name="migrate_tables")
+def migrate_tables(
+    ctx: typer.Context,
+    cfg_name: str = typer.Option(..., help="Name of config file"),
+    migration_mode: str = typer.Option(...,help="specify if you want to migrate modified or created objects values: created/modified"),
+    validation_mode: str = typer.Option(..., help="run in validation mode only True/False"),
+    #data_dir: pathlib.Path = typer.Option(..., help="directory to read input data from"),
+):
+    """
+    Migrates all created/modified tables from source to destination cluster
+    """
+    table = Table(show_header=True, header_style='bold #2070b2',
+                title='[bold]Migrated tables',expand= True,show_lines=True, row_styles=['#F0F0F8'] )
+    table.add_column('assigned GUID', justify='left',width=60)
+    table.add_column('Name', justify='left',width=80)
+    table.add_column('Status', justify='center',width=30)
+    get_cfg(cfg_name)
+    print("Starting Migration of {} tables in validation mode: {}".format(migration_mode, validation_mode))
+    ts: TSRestApiV1 = TSRestApiV1(server_url=source_ts_url)
+    ts.requests_session.verify = False
+    try:
+        ts.session_login(username=source_username, password=source_password)
+        print("successfully logged in to " + source_ts_url)
+    except requests.exceptions.HTTPError as e:
+        print(e)
+        print(e.response.content)
+
+    ps: TSRestApiV1 = TSRestApiV1(server_url=dest_ts_url)
+    ps.requests_session.verify = False
+    try:
+        ps.session_login(username=dest_username, password=dest_password)
+        print("successfully logged in to " + dest_ts_url)
+    except requests.exceptions.HTTPError as e:
+        print(e)
+        print(e.response.content)
+
+    if validation_mode == 'False':
+        Validate = False
+    else:
+        Validate = True
+    if migration_mode == 'created':
+        create_new = True
+        subfolder = 'created'
+    else:
+        create_new = False
+        subfolder = 'modified'
+
+    NewtablesDf = pd.read_csv(
+        data_dir +
+        "/" +
+        subfolder +
+        "/" +
+        'System Table_{}.csv'.format(migration_mode),
+        header=[0],
+        delimiter='|')
+    tableList = NewtablesDf['id'].to_list()
+    NewObjectsList = []
+    OwnerList = []
+    FailedToLoad = []
+    map_guid = []
+    for GUID in track(tableList, description=f'[green]Migration/Validation of {len(tableList)} {migration_mode} tables'):
+        object_guid = GUID
+        try:
+            object_type = 'LOGICAL_TABLE'
+            object_name = NewtablesDf.loc[NewtablesDf['id'] == GUID, 'name'].item()
+            owner_name = NewtablesDf.loc[NewtablesDf['id'] == GUID, 'authorName'].item()
+            tml = ts.metadata_tml_export(guid=GUID)
+            logging.info("Export for " + '{}.table.tml'.format(object_name) + " successfull")
+            tbl_tml.loads(json.dumps(tml)).dump(f"{data_dir}/tml_export/tables/{migration_mode}/{object_name}_{object_guid}.table.tml")
+            UploadObject = ps.metadata_tml_import(tml, create_new_on_server=create_new, validate_only=Validate)
+            
+            
+            logging.info(UploadObject['object'][0]['response']['status'])
+            
+            NewObjectsList.append(UploadObject['object'][0]['response']['header']['id_guid'])
+            #owner_name = UploadObject['object'][0]['response']['header']['owner_guid']
+            try:
+                new_guid = UploadObject['object'][0]['response']['header']['id_guid']
+                map_guid.append([object_guid, new_guid, owner_name, object_name, object_type])
+            except:
+                logging.info("couldn't assign new guid, object already present in target environment")
+                new_guid = ''
+            table.add_row( new_guid,  object_name, '✅')
+            tag_name = 'migration_tools'
+            
+            if Validate == True:
+                logging.info("Validation for " + '{}.table.tml'.format(object_name) + " successfull")
+            else:
+                ps.metadata_assigntag(object_guids=['{}'.format(new_guid)],object_type=[f'{object_type}'],tag_names=[tag_name])
+                logging.info("Imported " + '{}.table.tml'.format(object_name) + " successfully")
+        except Exception as e:
+            table.add_row( object_guid,  object_name, '❌')
+            logging.info("couldn't save {}.table.tml".format(object_name))
+            error_code = str(e)
+            FailedToLoad.append([object_guid, owner_name, object_name, object_type,error_code])
+            print(str(e))
+            pass
+
+    df = pd.DataFrame(map_guid, columns=["old_guid", "new_guid", "owner", "object_name", "object_type"])
+    df_failed = pd.DataFrame(FailedToLoad, columns=["old_guid", "owner", "object_name", "object_type","error_code"])
+    table_author = df
+    if Validate == False:
+        table_author.to_csv(data_dir + "/info/" + 'table_author.csv', index=False, encoding='UTF8')
+        df_failed.to_csv(data_dir + "/info/" + 'table_failed.csv', index=False, encoding='UTF8')
+    else:
+        pass
+    logging.info("Finished Migration/Validation of " + str(len(table_author)) + " objects")
+    if(len(df_failed)) > 0:
+        error_handler = 'error'
+    else: 
+        error_handler = 'success'
+    console.print(str(len(df_failed)) + " Error(s) detected",style=f'{error_handler}')
+    console.print(table)
 
 @app.command(name="transfer_ownership")
 def transfer_ownership(
