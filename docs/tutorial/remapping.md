@@ -15,6 +15,10 @@ And finally you see that the remapping has failed. It still encountered an issue
 
 At the bottom of the file you see a few new entries with YAML in the first column, which are unmapped. It was not able to locate the table rpt_ga_topline_monthly directly initially, but was able to map it to RPT_GA_TOPLINE_MONTHLY_ALTERED via the same fuzzy matching process. You might have noticed that this table was already mentioned in one of the warnings earlier. So if we are happy with this mapping we can just switch the status to OVERRIDE to accept them.
 
+!!! warning "Data Types for YAML overrides should be YAML (ThoughtSpot) Data Types"
+
+    When providing overrides in the overrides.csv it is important to provide the correct data types for the target. In the case of overrides during the validation, they will need to be the data types from the target platform. However, for YAML overrides it will need to be data types from ThoughtSpot (INT32, INT64, VARCHAR, etc)
+
 Now we can just rerun the process.
 
 ![](./tutorial_completed_migration.png)

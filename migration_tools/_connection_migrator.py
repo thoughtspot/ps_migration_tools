@@ -141,6 +141,21 @@ class datatype:
             bool: True if the data types are compatible, False otherwise
         """
         other_config = self._source_config if other_data_type.cdw.upper() == 'FALCON' else self._target_config
+        # print(self.data_config['DATATYPE_MAPPINGS'])
+        # print("++++++++++")
+        # print(other_config['DATATYPE_MAPPINGS'])
+        # print("------------")
+        # print(self.lookup_type)
+        # print(self.data_config['DATATYPE_MAPPINGS'][
+        #     self.lookup_type])
+        # print("===>")
+        # print(other_data_type.lookup_type)
+        # print('+++++++++++')
+        # print(self.data_config['DATATYPE_MAPPINGS'][
+        #     self.lookup_type]['GROUP'])
+        # print('========>')
+        # print(other_config['DATATYPE_MAPPINGS'][
+        #     other_data_type.lookup_type])
         return self.data_config['DATATYPE_MAPPINGS'][
             self.lookup_type]['GROUP'] == other_config['DATATYPE_MAPPINGS'][
             other_data_type.lookup_type]['GROUP']

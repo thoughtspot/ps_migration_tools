@@ -89,6 +89,7 @@ nav:
     - "Getting Started": tutorial/intro.md
     - "Install & Upgrade": tutorial/install.md
     - "Setup a Config File": tutorial/config.md
+    - "Manually collecting metadata": tutorial/metadata.md
     - "Running a Model validation": tutorial/validate.md
     - "Remapping a Connection File": tutorial/remapping.md
   - Tools:

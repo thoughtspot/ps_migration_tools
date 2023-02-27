@@ -85,6 +85,10 @@
         TARGET_TYPE="VARCHAR"
         YAML_TYPE="VARCHAR"
         GROUP="TEXT"
+    [DATATYPE_MAPPINGS."TEXT"]              
+        TARGET_TYPE="VARCHAR"
+        YAML_TYPE="VARCHAR"
+        GROUP="TEXT"
     [DATATYPE_MAPPINGS."TEXT(X)"]              
         TARGET_TYPE="VARCHAR"
         YAML_TYPE="VARCHAR"
