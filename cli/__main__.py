@@ -15,6 +15,7 @@ from ._ux import comment, console, output_message
 from pathlib import Path
 from string import Template
 import time
+from migration_tools._version import __version__
 from subprocess import check_output
 from thoughtspot_rest_api_v1 import *
 import urllib3
@@ -40,11 +41,12 @@ urllib3.disable_warnings()
 log = logging.getLogger(__name__)
 
 app = typer.Typer(
-    help="""Migration tools.
+    help=f"""Migration tools. {__version__}
     https://thoughtspot.github.io/ps_migration_tools/
     """,
     add_completion=False,
     no_args_is_help=True,
+    options_metavar='[--version, --help]',
     # global settings
     context_settings={
         "help_option_names": ["--help", "-h"],

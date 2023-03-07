@@ -5,9 +5,9 @@ build-backend = "poetry.core.masonry.api"
 
 [tool.poetry]
 name = "migration_tools"
-version = "1.0.0"
+version = "1.1.0"
 description = "Migration tools."
-authors = ["boonhapus <me@boonhap.us>","Misha Beek <misha.beek@thoughtspot.com>"]
+authors = ["boonhapus <me@boonhap.us>","Jens Englert <jens.englert@thoughtspot.com>","Misha Beek <misha.beek@thoughtspot.com>"]
 license = "Proprietary"
 include = [
     { path = "cli" },
