@@ -67,6 +67,11 @@ class HTTPClient(httpx.Client):
         p = {"type": object_type, "id": '[' + ','.join(object_guids) + ']', "permissiontype": "DEFINED"}
         r = self.get("/callosum/v1/tspublic/v1/security/metadata/permissions", params=p)
         return r
+    
+    def defined_permissions_bulk(self, idsbytype: str) -> httpx.Response:
+        d = {"idsbytype":idsbytype}
+        r = self.post("/callosum/v1/tspublic/v1/security/effectivepermissionbulk", data=d)
+        return r
 
     # parameterized METADATA/LISTOBJECTHEADERS
     def metadata_user_list(self) -> httpx.Response:

@@ -7,6 +7,7 @@ usage: share_permissions [-h] [--cfg-name]
 arguments:
   -h, --help                   show this help message and exit
   --cfg-name   CONFIGNAME      Name of config.toml file.
+  --validation-mode   Validation Mode      True/False.
   
                         
 ~~~
