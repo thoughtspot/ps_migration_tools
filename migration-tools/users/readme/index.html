@@ -947,14 +947,15 @@
 
   <h1>🔐 Create Users</h1>
 
-<p>The <code>create_users</code> function will create all missing users by looking at the <code>deltas</code> output. </p>
+<p>The <code>create_users</code> function will create all missing users by looking at the <code>deltas</code> output. 
+This command does not run a full user sync, it only creates missing users on the target cluster. Make sure you run a full user/group sync at the end of the migration. </p>
 <div class="highlight"><pre><span></span><code>usage: create_users [-h] [--cfg-name CONFIGNAME] [--validate-only yes/no]
 
 
 arguments:
   -h, --help          show this help message and exit
   --cfg-name          Name of the config file
-  --validate-only     yes/no 
+  --validate-only     [yes/no]
 </code></pre></div>
 <h2 id="cli-preview">CLI preview<a class="headerlink" href="#cli-preview" title="Permanent link">&para;</a></h2>
 <div class="tabbed-set tabbed-alternate" data-tabs="1:1"><input checked="checked" id="__tabbed_1_1" name="__tabbed_1" type="radio" /><div class="tabbed-labels"><label for="__tabbed_1_1">create_users --help</label></div>
