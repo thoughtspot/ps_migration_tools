@@ -1,7 +1,7 @@
 [GENERAL_SETTINGS]
 BASE_PROJECTS_FOLDER = "./projects"
 DBSCHEMA_STUB = "/Applications/DbSchema/DbSchema.app/Contents/MacOS/JavaApplicationStub"
-LOG_FILE_PURGE_SECS = 600
+LOG_FILE_PURGE_SECS = 6000000
 DDL_CONVERSION_SCRIPT = './external_scripts/parse_model.sh'
 
 [YAML_PROCESSING]

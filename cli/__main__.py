@@ -31,6 +31,7 @@ try:
     from thoughtspot_tml import Liveboard
     from thoughtspot_tml import Answer
     from thoughtspot_tml import Table as tbl_tml
+    from thoughtspot_tml.utils import determine_tml_type
 except:
     print('thoughtspot_tml couldn ot be imported please install the package by running: pip install "thoughtspot_tml @ https://github.com/thoughtspot/thoughtspot_tml/archive/v2.0.1.zip"')
 urllib3.disable_warnings()
@@ -183,6 +184,62 @@ def create_cfg(
             Template(general_config.get('TEMPLATES').get('PROJECT_CONFIG')).substitute(
                 {'data_dir': data_dir}))
 
+@ app.command(name="get_permissions")
+def get_permissions(
+    ctx: typer.Context,
+    cfg_name: str = typer.Option(..., help="Name of config file"),
+):
+    """
+    Download Permissions from source cluster
+    """
+    get_cfg(cfg_name)
+    ts = HTTPClient(ts_url=source_ts_url)
+    r = ts.login(source_username, source_password)
+    r.raise_for_status()
+    ps = HTTPClient(ts_url=dest_ts_url)
+    r = ps.login(dest_username, dest_password)
+    r.raise_for_status()
+    liveboards = pd.json_normalize(ts.pinboard_list().json(), record_path='headers')
+    liveboard_list = liveboards['id'].to_list()
+    answers = pd.json_normalize(ts.answer_list().json(), record_path='headers')
+    answerlist = answers['id'].to_list()
+    teststring = {'PINBOARD_ANSWER_BOOK': liveboard_list,'QUESTION_ANSWER_BOOK': answerlist}
+    test = ts.defined_permissions_bulk(idsbytype=teststring).json()
+    print(test)
+    """
+    metadata = {
+        
+        "PINBOARD_ANSWER_BOOK": ts.pinboard_list,
+        "QUESTION_ANSWER_BOOK": ts.answer_list,
+        "LOGICAL_TABLE": ts.table_list,
+        "LOGICAL_TABLE": ts.view_list,
+        "LOGICAL_TABLE": ts.worksheet_list,
+    }
+    perm_list =[]
+    for name, ts_api_method in metadata.items():
+        objects = pd.json_normalize(ts_api_method().json(), record_path='headers')
+        for GUID in objects['id']:
+            perms = ts.defined_permissions(object_type = name,object_guids= [GUID]).json()
+            sublevel_key = perms[GUID]['permissions']
+            #print(sublevel_key)
+            topLevelObject = GUID
+            object_type = name
+            
+            for key in sublevel_key.keys():
+                share_mode = perms[GUID]['permissions'][key]['shareMode']
+                perm_list.append([topLevelObject,key,share_mode,object_type])
+            
+    permissions = pd.DataFrame(perm_list, columns=["object_guid", "user_guid", "sharing_mode","object_type"])
+    print(permissions)
+    """
+
+
+    #t = Texttable()
+    #t.add_rows(empty_table_list)   
+    #t.set_cols_width([5, 30, 30, 40])    
+    #print(t.draw())        
+    
+
 @ app.command(name="sync_users")
 def sync_users(
     ctx: typer.Context,
@@ -223,8 +280,8 @@ def sync_users(
     empty_table_list =[['index','username','display name','assigned groups']]
     for usr in track(range(len(users)), description=f'[bold green]Synchronising {sync_type} users'):
         username = users['name'].iloc[usr]
-        print(users['displayName'].iloc[usr])
-        print(type(users['displayName'].iloc[usr]))
+        #print(users['displayName'].iloc[usr])
+        #print(type(users['displayName'].iloc[usr]))
         #dis_name = users['displayName'].iloc[usr]
         assigned_groups = pd.json_normalize(ts.users(user_name = username).json())
         ass_grp = assigned_groups['assignedGroups'][0]
@@ -249,7 +306,7 @@ def remove_summary(
     object_type: str = typer.Option(..., help="valid options: [Answers,Liveboards]"),
 ):
     """
-    Creating missing users on the destination cluster
+    Removes the headline aggregation from all answers/liveboards
     """
     get_cfg(cfg_name)
     if validate_only =='no':
@@ -274,7 +331,7 @@ def remove_summary(
         ### Upload 
         Answers = pd.read_csv(f"{data_dir}/all_objects/Answer.csv", header=[0], delimiter='|')
         Answers = Answers['id']
-
+        
         for answer in track(Answers, description='[cyan][bold]Removing headline aggregations for {} Answers'.format(len(Answers))):
             GUID = answer
             try:
@@ -301,7 +358,7 @@ def remove_summary(
     elif object_type == 'Liveboards':   
         Liveboards = pd.read_csv(f"{data_dir}/all_objects/Liveboard.csv", header=[0], delimiter='|')
         Liveboards = Liveboards['id']
-
+        #Liveboards = ['2f2b97e3-2420-477e-babe-53e4de2ece0c']
         for Liveboard_guid in track(Liveboards, description='[cyan][bold]Removing headline aggregations for {} Liveboards'.format(len(Liveboards))):
             GUID = Liveboard_guid
             try:
@@ -310,8 +367,17 @@ def remove_summary(
             except Exception as e:
                 logging.info(str(e))
                 pass
-            for i in range(len(tml['liveboard']['visualizations'])):
-                for n in range(len(tml['liveboard']['visualizations'][i]['answer']['table']['table_columns'])):
+            try:
+                numberOfViz = len(tml['liveboard']['visualizations'])
+            except:
+                logging.info("This liveboard seems to be empty and will be skipped")
+                numberOfViz = 1
+            for i in range(numberOfViz):
+                try:
+                    numberOfTableColumns = len(tml['liveboard']['visualizations'][i]['answer']['table']['table_columns'])
+                except:
+                    numberOfTableColumns = 1
+                for n in range(numberOfTableColumns):
                     try:
                         del tml['liveboard']['visualizations'][i]['answer']['table']['table_columns'][n]['headline_aggregation']
                         tml['liveboard']['visualizations'][i]['answer']['table']['table_columns'][n]['show_headline'] = False
@@ -321,9 +387,9 @@ def remove_summary(
             try:
                 UploadObject = ps.metadata_tml_import(tml, create_new_on_server=False, validate_only=validate_flag)
                 logging.info(str(GUID)+' --> '+str(UploadObject['object'][0]['response']['status']))
-            except:
+            except Exception as e:
                 pass
-                logging.info(str(GUID)+' --> '+str(UploadObject['object'][0]['response']['status']))
+                logging.info(str(e)+' --> '+GUID)
         output_message("Removed {} headline_aggregations from {}".format(len(Liveboards),dest_ts_url),'success')    
     else:
         pass
@@ -334,6 +400,47 @@ def remove_summary(
         print(t.draw())    
         """    
         #output_message("Removed {} headline_aggregations from {}".format(len(Answers),dest_ts_url),'success')
+
+@ app.command(name="rollback_tml")
+def rollback_tml(
+    ctx: typer.Context,
+    cfg_name: str = typer.Option(..., help="Name of config file"),
+    validate_only: str = typer.Option(..., help="yes/no"),
+    object_type: str = typer.Option(..., help="Answer/Liveboard"),
+
+):
+    """
+    upload original tml objects (see projects/cfg-name/output/delta_migrations/tml_export/original/...)
+    """
+    get_cfg(cfg_name)
+    if validate_only =='no':
+        validate_flag = False
+    else:
+        validate_flag = True
+    ps: TSRestApiV1 = TSRestApiV1(server_url=dest_ts_url)
+    ps.requests_session.verify = False
+    try:
+        ps.session_login(username=dest_username, password=dest_password)
+        console.print("successfully logged in to " + dest_ts_url, style="success")
+    except requests.exceptions.HTTPError as e:
+        console.print(e, style="error")
+        print(e.response.content)
+
+    console.print(f"Uploading original {object_type} tml files", style="bold blue")
+    directory = f"{data_dir}/tml_export/original/{object_type}/"
+    for filename in os.listdir(directory):
+        obj = determine_tml_type(path=f"{data_dir}/tml_export/original/{object_type}/{filename}")
+        tml = obj.load(f"{data_dir}/tml_export/original/{object_type}/{filename}")
+        tml_name = tml.name
+        data = tml.dumps(format_type="JSON")
+        try:
+            UploadObject = ps.metadata_tml_import(data, create_new_on_server=False, validate_only=validate_flag)
+            console.print(f"[bold green]successfully[/bold green] recovered [bold cyan]{tml_name}[/bold cyan] from {filename}")
+            logging.info(str(tml_name)+' --> '+str(UploadObject['object'][0]['response']['status']))
+        except Exception as e:
+            pass
+            console.print(f"[bold red]failed[/bold red] to recover [bold cyan]{tml_name}[/bold cyan] from {filename} (see log files)")
+            logging.info(str(e)+' --> '+filename)
 
 # local functions
 
@@ -645,8 +752,16 @@ def gather_deltas(
             df = (pd.json_normalize(ts_api_method().json(), record_path='headers'))
             df = df.query(f"{subtype} > @timestamp")
             console.print(f"Number of {subtype} "+name+ "s: "+ str(len(df)))
+            ###
+            if subtype == 'modified':
+                query_string = 'modified > @timestamp & created < @timestamp'
+            else:
+                query_string = 'modified > @timestamp'
+            #console.print(query_string)
+            ###
             (
-            df.query(f"{subtype} > @timestamp")
+            #df.query(f"{subtype} > @timestamp")
+            df.query(f"{query_string}")
             .pipe(comment, msg="Total number of {name}s: {df.index.size:,}", name=name)
             .merge(user_df, how="left", left_on="author", right_on="user_id")
             .rename(columns={"header.id": "id", "header.name": "name"})
@@ -922,7 +1037,7 @@ def migrate_answers(
                         pass
                 except BaseException:
                     pass
-            Answer.loads(json.dumps(tml)).dump(f"{data_dir}/tml_export/answers/{migration_mode}/{object_name}_{object_guid}.answer.tml")
+            Answer.loads(json.dumps(tml)).dump(f"{data_dir}/tml_export/answers/{migration_mode}/{object_guid}.answer.tml")
             UploadObject = ps.metadata_tml_import(tml, create_new_on_server=create_new, validate_only=Validate)
             #print("Status:")
             logging.info(UploadObject['object'][0]['response']['status'])
@@ -995,7 +1110,7 @@ def migrate_liveboards(
     table.add_column('Name', justify='left',width=80)
     table.add_column('Status', justify='center',width=30)
     get_cfg(cfg_name)
-    print("Starting Migration of {} answers in validation mode: {}".format(migration_mode, validation_mode))
+    print("Starting Migration of {} liveboards in validation mode: {}".format(migration_mode, validation_mode))
     ts: TSRestApiV1 = TSRestApiV1(server_url=source_ts_url)
     ts.requests_session.verify = False
     try:
@@ -1066,7 +1181,7 @@ def migrate_liveboards(
                     except BaseException:
                         pass
             try:
-                Liveboard.loads(json.dumps(tml)).dump(f"{data_dir}/tml_export/liveboards/{migration_mode}/{object_name}_{object_guid}.liveboard.tml")
+                Liveboard.loads(json.dumps(tml)).dump(f"{data_dir}/tml_export/liveboards/{migration_mode}/{object_guid}.liveboard.tml")
                 UploadObject = ps.metadata_tml_import(tml, create_new_on_server=create_new, validate_only=Validate)
                 logging.info("Status:")
                 logging.info(UploadObject['object'][0]['response']['status'])
@@ -1225,6 +1340,7 @@ def migrate_worksheets(
         worksheet_author.to_csv(data_dir + "/info/" + 'worksheet_author.csv', index=False, encoding='UTF8')
         df_failed.to_csv(data_dir + "/info/" + 'worksheet_failed.csv', index=False, encoding='UTF8')
     else:
+        df_failed.to_csv(data_dir + "/info/" + 'worksheet_failed.csv', index=False, encoding='UTF8')
         pass
     logging.info("Finished Migration/Validation of " + str(len(worksheet_author)) + " objects")
     if(len(df_failed)) > 0:
@@ -1352,6 +1468,7 @@ def migrate_tables(
 def transfer_ownership(
     ctx: typer.Context,
     cfg_name: str = typer.Option(..., help="Name of config file"),
+    validate_only: str = typer.Option(..., help="yes/no"),
     #adminuser: str = typer.Option(..., help="admin username that is used for the migration"),
     #dest_ts_url: str = typer.Option(..., help="URL of your ThoughtSpot cluster"),
     #dest_username: str = typer.Option(..., help="username of your source cluster"),
@@ -1395,8 +1512,12 @@ def transfer_ownership(
         ToUser = object_author_table['owner'].iloc[i]
 
         try:
-            t = ts.transfer_ownership(FromUser, ToUser, ObjGUID)
-            logging.info(str(t))
+            if validate_only == 'yes':
+                t = ts.transfer_ownership(FromUser, ToUser, ObjGUID)
+                logging.info(str(t))
+            else:
+                pass
+            
             name_string = object_author_table['object_name'].iloc[i]
             length_string = 30 - len(name_string)
             console.print(
@@ -1476,14 +1597,16 @@ def add_tags(
 def share_permissions(
     ctx: typer.Context,
     cfg_name: str = typer.Option(..., help="Name of config file"),
-    sharing_mode: str = typer.Option(..., help="Specify if you want to share the delta or all objects"),
+    sharing_mode: str = typer.Option(..., help="Specify if you want to share the delta (permissions for new objects only) or all objects"),
     validation_mode: str = typer.Option(..., help="Validate only [True,False]"),
     #dest_ts_url: str = typer.Option(..., help="URL of your ThoughtSpot cluster"),
     #dest_username: str = typer.Option(..., help="username of your source cluster"),
     #dest_password: str = typer.Option(..., help="password of your source cluster"),
     #data_dir: pathlib.Path = typer.Option(..., help="directory to store output data in"),
 ):
-    """ """
+    """ 
+    Share Objects with users/groups on thertarget cluster
+    """
     get_cfg(cfg_name)
     ts: TSRestApiV1 = TSRestApiV1(server_url=dest_ts_url)
     ts.requests_session.verify = False
@@ -1502,10 +1625,10 @@ def share_permissions(
         .pipe(comment, msg="Reading user mapping table")
     )
     # read all ownerships
-    output_message("🔑Sharing content with users & groups for all kind of objects",'success')
+    output_message("🔑Sharing content with users & groups",'success')
 
     ## Permissions for new objects
-    metadata = pd.read_csv(data_dir +"/cs_tools_cloud/ts_metadata_object.csv",header=[0],delimiter='|')
+    metadata = pd.read_csv(data_dir +"/cs_tools_falcon/ts_metadata_object.csv",header=[0],delimiter='|')
     permissions_df = pd.read_csv(data_dir +"/cs_tools_falcon/ts_sharing_access.csv",header=[0],delimiter='|')
     #### ----> existing objects:
     modified_objects = (
@@ -1526,6 +1649,7 @@ def share_permissions(
 
     for object_type in object_list:
         ##### ---> new objects
+        """
         new_objects = (
             pd.read_csv(data_dir + "/" + "info" + "/" + f'{object_type}_author.csv', header=[0], delimiter=',')
             .pipe(comment, msg="Reading object information")
@@ -1533,11 +1657,17 @@ def share_permissions(
             .merge(user_map, how="left", left_on='shared_to_user_guid', right_on='id_user_old')
             .merge(group_map, how="left", left_on='shared_to_group_guid', right_on='id_group_old')
         )
-
-        
         new_objects.to_csv(data_dir + "/" + "info" + "/" + f"sharing_permissions_{object_type}.csv", index=False, encoding='utf8')
-        
+        """
         if sharing_mode == 'delta':
+            new_objects = (
+            pd.read_csv(data_dir + "/" + "info" + "/" + f'{object_type}_author.csv', header=[0], delimiter=',')
+            .pipe(comment, msg="Reading object information")
+            .merge(permissions_df, how="inner", left_on='old_guid', right_on='object_guid')
+            .merge(user_map, how="left", left_on='shared_to_user_guid', right_on='id_user_old')
+            .merge(group_map, how="left", left_on='shared_to_group_guid', right_on='id_group_old')
+            )
+            new_objects.to_csv(data_dir + "/" + "info" + "/" + f"sharing_permissions_{object_type}.csv", index=False, encoding='utf8')
             sharing_df = new_objects
             ob_name = 'object_name'
         elif sharing_mode == 'all':
