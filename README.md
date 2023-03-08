@@ -12,8 +12,6 @@ The `migration_tools` CLI requires at least __`python` version 3.9__ to run.
 $ cd Downloads/ps_migration_tools-main
 $ python -m venv .ts-mig
 $ source .ts-mig/bin/activate  # or windows:    .ts-mig/Scripts/activate 
-(.ts-mig) $ pip install .
-$ pip install git+https://github.com/thoughtspot/thoughtspot_tml.git@build-spec
-$ pip install thoughtspot_rest_api_v1
+(.ts-mig) $ pip install -e .
 ```
 Docs: [Migration_tools](https://thoughtspot.github.io/ps_migration_tools/)
