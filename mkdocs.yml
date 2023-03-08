@@ -4,8 +4,8 @@ site_description: >-
   Migration Tools is a command line interface to help the __ThoughtSpot__ Professional
   Services team accelerate migration workflows.
 
-repo_name: thoughtspot/migration_tools
-repo_url: https://github.com/thoughtspot/migration_tools
+repo_name: thoughtspot/ps_migration_tools
+repo_url: https://github.com/thoughtspot/ps_migration_tools
 edit_uri: tree/docs/docs/
 
 copyright: Copyright &copy; 2022 ThoughtSpot Inc. All Rights Reserved
@@ -73,7 +73,7 @@ markdown_extensions:
 extra:
   social:
     - icon: fontawesome/brands/github
-      link: https://github.com/thoughtspot/migration_tools
+      link: https://github.com/thoughtspot/ps_migration_tools
       name: find us on github
 
     - icon: fontawesome/solid/paper-plane
@@ -92,21 +92,24 @@ nav:
     - "Manually collecting metadata": tutorial/metadata.md
     - "Running a Model validation": tutorial/validate.md
     - "Remapping a Connection File": tutorial/remapping.md
-  - Tools:
+    - "Delta Migration Workflow": tutorial/delta_migration.md
+  - Migration Validation:
     - migration-tools/overview.md
     - Create Config: migration-tools/create-config/readme.md
     - Convert DDLs: migration-tools/convert-ddls/readme.md
     - Validate Models: migration-tools/validate-models/readme.md
     - YAML Migrate: migration-tools/migrate-yaml/readme.md
-    - Deltas: migration-tools/deltas/README.md
-    - Migrate Answers: migration-tools/answers/README.md
-    - Migrate Liveboards: migration-tools/liveboards/README.md
-    - Migrate Worksheets: migration-tools/worksheets/README.md
-    - Transfer Ownership: migration-tools/ownership/README.md
-    - Apply Tags: migration-tools/tags/README.md
-    - Share Permissions: migration-tools/share-permissions/README.md
-    - 🔐 Deploy: migration-tools/deploy/README.md
-    - 🔐 Compare Environments: migration-tools/compare/README.md
+  - Delta Migration:
+    - Create Config: migration-tools/create-config/readme.md
+    - Deltas: migration-tools/deltas/readme.md
+    - Migrate Answers: migration-tools/answers/readme.md
+    - Migrate Liveboards: migration-tools/liveboards/readme.md
+    - Migrate Worksheets: migration-tools/worksheets/readme.md
+    - Transfer Ownership: migration-tools/ownership/readme.md
+    - Apply Tags: migration-tools/tags/readme.md
+    - Share Permissions: migration-tools/share-permissions/readme.md
+    - 🔐 Create Users: migration-tools/users/readme.md
+    - 🔐 Create Groups: migration-tools/groups/readme.md
   - Changelog:
     - v1.0.0: changelog/1.0.0.md
   - 🤓:
