@@ -163,6 +163,11 @@ To deal with the identified issues, we can do the following:
        3. Agree with the client the name of the target database/schema where these objects will be created and set these in the target database and target schema column
        4. Change the mapping status to OVERRIDE for these rows
 
+!!! warning "Data Types for Validation overrides should be Target Data Types"
+
+    When providing overrides in the overrides.csv it is important to provide the correct data types for the target. In the case of overrides during the validation, they will need to be the data types from the target platform. However, for YAML overrides it will need to be data types from ThoughtSpot (INT32, INT64, VARCHAR, etc)
+
+
 ### Rerunning the validation with overrides
 
 We can now rerun the validation.

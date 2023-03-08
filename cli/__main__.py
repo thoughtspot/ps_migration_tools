@@ -8,8 +8,8 @@ import toml
 import typer
 import pytz
 import os
+from migration_tools import HTTPClient, connection_migrator, ENonCriticalError, EDBSchemaNotInstalled, EDatabaseNotSupported, DDL
 import json
-from migration_tools import HTTPClient, connection_migrator, ENonCriticalError, EDBSchemaNotInstalled, EDatabaseNotSupported
 from ._util import State
 from ._ux import comment, console, output_message
 from pathlib import Path
@@ -616,6 +616,15 @@ def convert_ddls(
         output_message("DDL conversion process completed", "success")
     else:
         raise EDBSchemaNotInstalled()
+
+
+@ app.command(name="generate_target_ddl")
+def generate_target_ddl(
+    ctx: typer.Context,
+    cfg_name: str = typer.Option(..., help="Name of config file"),
+):
+    console.print("MIGRATION TOOLS - Generate Target DDL", style="bold blue")
+    ddl = DDL('./projects/myfirstproject/input/ddl/falcon/justeat.sql')
 
 
 @ app.command(name="validate_models")

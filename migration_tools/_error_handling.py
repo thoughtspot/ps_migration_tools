@@ -43,10 +43,12 @@ class EYAMLValidationError(ENonCriticalError):
 
     def __init__(self, general_config):
         super().__init__()
-        self.message = ''.join(("There are still issues with the YAML file, or confirmations are needed, please ",
-                                "review the override file, which can be found here: ",
-                                f'{os.getcwd()}/{general_config["FILE_LOCATIONS"]["MANUAL_OVERRIDES"][2:]}. ',
-                                'Additional errors can be found in the log file.'))
+        self.message = ''.join(
+            ("There are still issues with the YAML file, or confirmations are needed, please ",
+             "review the override file, which can be found here: ",
+             f'{os.getcwd()}/{general_config["FILE_LOCATIONS"]["MANUAL_OVERRIDES"][2:]}. ',
+             'Additional errors can be found in the log file. When overriding the table make sure it',
+             'is a valid override, i.e. target table has the same or more rows.'))
 
 
 class EYAMLPreparationError(ENonCriticalError):
