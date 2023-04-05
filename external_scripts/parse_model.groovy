@@ -13,9 +13,9 @@ String SOURCE_PLATFORM = env['SOURCE_PLATFORM']
 String TARGET_PLATFORM = env['TARGET_PLATFORM']
 
 def convert_sql_2_model = { sql_path, model_path, source_db -> 
-    switch (source_db.toUpperCase()) {
-        case "FALCON" : {source_db = 'ThoughtSpot'; break;}
-    }
+    // switch (source_db.toUpperCase()) {
+    //     case "FALCON" : {source_db = 'ThoughtSpot'; break;}
+    // }
     println "Converting sql files in folder "+sql_path+" to target path "+model_path+" for data platform "+source_db
     // Identify all sql files in folder
     def sql_list = []

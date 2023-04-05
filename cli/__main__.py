@@ -607,8 +607,8 @@ def convert_ddls(
             cfg['GENERAL_SETTINGS']['DDL_CONVERSION_SCRIPT'],
             str(cfg['GENERAL_SETTINGS'].get('DBSCHEMA_STUB')),
             str(cfg_name),
-            str(cfg.get('MIGRATION').get('SOURCE_PLATFORM')),
-            str(cfg.get('MIGRATION').get('TARGET_PLATFORM'))])
+            str(cfg.get('MIGRATION').get('SOURCE_DBSCHEMA_DRIVER')),
+            str(cfg.get('MIGRATION').get('TARGET_DBSCHEMA_DRIVER'))])
 
         for log_line in output.decode("utf-8").split('\n'):
             output_message(log_line)

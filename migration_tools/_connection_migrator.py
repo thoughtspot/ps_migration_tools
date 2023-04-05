@@ -141,23 +141,12 @@ class datatype:
             bool: True if the data types are compatible, False otherwise
         """
         other_config = self._source_config if other_data_type.cdw.upper() == 'FALCON' else self._target_config
-        # print(self.data_config['DATATYPE_MAPPINGS'])
-        # print("++++++++++")
-        # print(other_config['DATATYPE_MAPPINGS'])
-        # print("------------")
-        # print(self.lookup_type)
-        # print(self.data_config['DATATYPE_MAPPINGS'][
-        #     self.lookup_type])
-        # print("===>")
-        # print(other_data_type.lookup_type)
-        # print('+++++++++++')
-        # print(self.data_config['DATATYPE_MAPPINGS'][
-        #     self.lookup_type]['GROUP'])
-        # print('========>')
-        # print(other_config['DATATYPE_MAPPINGS'][
-        #     other_data_type.lookup_type])
-        return self.data_config['DATATYPE_MAPPINGS'][
-            self.lookup_type]['GROUP'] == other_config['DATATYPE_MAPPINGS'][
+
+        # Now that we fixed the checks on source data types, this should never fail
+        if self.lookup_type not in self.data_config['DATATYPE_MAPPINGS']:
+            raise Exception
+
+        return self.data_config['DATATYPE_MAPPINGS'][self.lookup_type]['GROUP'] == other_config['DATATYPE_MAPPINGS'][
             other_data_type.lookup_type]['GROUP']
 
     def compare(self, other_data_type):
@@ -283,15 +272,29 @@ class dbschema_model:
         self.data_config = self._source_config if self.cdw.upper() == 'FALCON' else self._target_config
         self.valid_data_types = list(self.data_config['DATATYPE_MAPPINGS'])
 
+        # print(f"Checking valid data types for {self.cdw.upper()}. Valid are:")
+        # print(self.valid_data_types)
+        # print(re.sub(r'\([^)]*\)', '', 'VARCHAR(10)'))
+
+        # invalid_data_types = [
+        #     {'db': db, 's': schema, 't': table, 'c': c, 'dt': self.model[db]['schemas'][schema][table][c].basetype}
+        #     for db in self.model
+        #     for schema in self.model[db]['schemas']
+        #     for table in self.model[db]['schemas'][schema]
+        #     for c in self.model[db]['schemas'][schema][table]
+        #     if self.model[db]['schemas'][schema][table][c].basetype
+        #     not in list(
+        #         [re.sub(r'\([^)]*\)', '', m) for m in self.data_config['DATATYPE_MAPPINGS']])]
+
         invalid_data_types = [
-            {'db': db, 's': schema, 't': table, 'c': c, 'dt': self.model[db]['schemas'][schema][table][c].basetype}
+            {'db': db, 's': schema, 't': table, 'c': c, 'dt': self.model[db]['schemas'][schema][table][c].format_type(True)}
             for db in self.model
             for schema in self.model[db]['schemas']
             for table in self.model[db]['schemas'][schema]
             for c in self.model[db]['schemas'][schema][table]
-            if self.model[db]['schemas'][schema][table][c].basetype
+            if self.model[db]['schemas'][schema][table][c].format_type(True)
             not in list(
-                [re.sub(r'\([^)]*\)', '', m) for m in self.data_config['DATATYPE_MAPPINGS']])]
+                [m for m in self.data_config['DATATYPE_MAPPINGS']])]
 
         if len(invalid_data_types) > 0:
             raise EInvalidDataTypes(invalid_data_types, self.cdw)
@@ -1200,8 +1203,6 @@ class connections_yaml:
                                 overall_progress.update(overall_task, completed=completed)
 
                     else:
-                        print("KOMEN WE HIER?")
-                        print(table['external_table'])
                         self.mapping_details.merge_record(
                             # table_mapping_record=mapping_record(
                             mapping_record(
@@ -1212,7 +1213,6 @@ class connections_yaml:
                                 tar_database=table['external_table']['falcon_db'],
                                 tar_schema=table['external_table']['falcon_schema'],
                                 tar_table=table['external_table']['falcon_schema']))
-                        print("en HIER?")
                         for col in table['column']:
                             self.mapping_details.merge_record(
                                 mapping_record(
@@ -1933,6 +1933,9 @@ class connection_migrator:
                                                 f"Column {c} (or anything matching) has not been found.", "1-SEVERE")
 
                                         if c_match is not None:
+                                            output_message(
+                                                f"Checking matched columns for compatibility: {db}.{s}.{t}.{c}:{self.source_model.model[db]['schemas'][s][t][c].format_type(False)}==>{db_match}.{s_match}.{t_match}.{c_match}:{self.target_model.model[db_match]['schemas'][s_match][t_match][c_match].format_type(False)}")
+
                                             dt_val = self.source_model.model[db]['schemas'][s][t][c].compare(
                                                 self.target_model.model[db_match]['schemas'][s_match][t_match][c_match])
                                             if not dt_val['basetype']["status"]:
