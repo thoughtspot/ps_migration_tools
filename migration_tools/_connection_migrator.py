@@ -10,14 +10,13 @@ import re
 from pathlib import Path
 from collections import Counter
 import toml
-import typer
 from cli._ux import output_message
 from rich.live import Live
 from rich.panel import Panel
 from rich.progress import Progress, SpinnerColumn, BarColumn, TextColumn
 from rich.table import Table
 from migration_tools._comparison_report import comparison_report, table_comparison_summary, table_issue_summary, \
-    table_issue_detail, table_issue_list, table_info_list, report_section_title, table_current_mappings, table_file_list
+    table_issue_detail, table_issue_list, table_info_list, report_section_title, table_current_mappings, table_file_list, table_setting_list
 from migration_tools._error_handling import EInvalidDataTypes, EModelValidationError, EYAMLValidationError, \
     EYAMLPreparationError, EDatabaseNotSupported, EInputFilesMissing
 
@@ -43,17 +42,114 @@ class MigrationUtils:
         Returns:
             _type_: The column value in lowercase, underscores, parentheses replaced by spaces and special characters removed
         """
-        # return (column.casefold().replace('(', '').replace(')', '').replace(
-        #     '_', ' ').strip().encode("ascii", errors="ignore").decode())
         return " ".join((column.casefold().replace('(', ' ').replace(')', ' ').replace(
             '_', ' ').strip().encode("ascii", errors="ignore").decode()).split())
 
-# " ".join(my_str.split())
+# ======================================================================================================================
+# Notification Classes
+# ======================================================================================================================
+
+
+class VAL_NOTIFICATION:
+    def __init__(self, table=None, msg=None):
+        self.severity = '0-INFO'
+        self.table = "" if table is None else table
+        self.msg = "" if msg is None else msg
+        self.classification = "Informational Message"
+
+    def set_table(self, table):
+        self.table = table
+
+
+class E_VAL_ERROR(VAL_NOTIFICATION):
+
+    def __init__(self, table=None):
+        super().__init__(table)
+        self.severity = '1-SEVERE'
+        self.msg = "Validation Failed"
+        self.classification = "Validation Error"
+
+
+class E_NO_SUITABLE_MATCH(E_VAL_ERROR):
+    def __init__(self, table):
+        super().__init__(table)
+        self.msg = "No suitable matching table could be found"
+        self.classification = "Table Could Not Be Matched"
+
+
+class E_COLUMN_NOT_FOUND(E_VAL_ERROR):
+    def __init__(self, table, col):
+        super().__init__(table)
+        self.msg = f"Column {col} (or anything matching) has not been found."
+        self.classification = "Column Not Found"
+
+
+class E_FUZZY_MATCH_NOTIFICATION(E_VAL_ERROR):
+    def __init__(self, table, msg):
+        super().__init__(table)
+        self.severity = '2-LOW'
+        self.msg = msg
+        self.classification = "Table Could Only Be Matched Via Fuzzy Match"
+
+
+class E_STRICT_DATATYPE_NOTIFICATION(E_VAL_ERROR):
+    def __init__(self, source_data_type, source_yaml_type, target_data_type, target_yaml_type, table=None):
+        super().__init__(table)
+        self.severity = '2-LOW'
+        self._source_data_type = source_data_type
+        self._target_data_type = target_data_type
+        self.msg = f"Type {self._source_data_type} ({source_yaml_type}) might not be compatible with {self._target_data_type} ({target_yaml_type}) both ways"
+        self.classification = "Source and Target Data Type might not be compatible both ways"
+
+
+class E_DT_VAL_ERROR(E_VAL_ERROR):
+    def __init__(self, source_data_type, target_data_type, table=None):
+        super().__init__(table)
+        self._source_data_type = source_data_type
+        self._target_data_type = target_data_type
+        self.classification = "Data Type Validation Error"
+
+
+class E_VAL_INCOMPATIBLE_DATATYPES(E_DT_VAL_ERROR):
+    def __init__(self, source_data_type, target_data_type, table=None):
+        super().__init__(source_data_type, target_data_type, table)
+        self.msg = f"Type {self._source_data_type} is not compatible with {self._target_data_type}"
+        self.classification = "Source and Target Data Type Incompatible"
+
+
+class E_VAL_LARGER_TARGET_DECIMAL(E_DT_VAL_ERROR):
+    def __init__(self, source_data_type, target_data_type, critical_override, table=None):
+        super().__init__(source_data_type, target_data_type, table)
+        self.severity = "1-SEVERE" if critical_override else "2-LOW"
+        self.msg = f"Target datatype decimal {self._target_data_type} is larger than source {self._source_data_type}"
+        self.classification = "Target Data Type Precision Larger Than Source"
+
+
+class E_VAL_SMALLER_TARGET_DECIMAL(E_DT_VAL_ERROR):
+    def __init__(self, source_data_type, target_data_type, table=None):
+        super().__init__(source_data_type, target_data_type, table)
+        self.msg = f"Target datatype decimal {self._target_data_type} is smaller than source {self._source_data_type}"
+        self.classification = "Target Data Type Precision Smaller Than Source"
+
+
+class E_VAL_LARGER_TARGET_LENGTH(E_DT_VAL_ERROR):
+    def __init__(self, source_data_type, target_data_type, critical_override, table=None):
+        super().__init__(source_data_type, target_data_type, table)
+        self.severity = "1-SEVERE" if critical_override else "2-LOW"
+        self.msg = f"Target datatype length {self._target_data_type} is larger than source {self._source_data_type}"
+        self.classification = "Target Data Type Length Larger Than Source"
+
+
+class E_VAL_SMALLER_TARGET_LENGTH(E_DT_VAL_ERROR):
+    def __init__(self, source_data_type, target_data_type, table=None):
+        super().__init__(source_data_type, target_data_type, table)
+        self.msg = f"Target datatype length {self._target_data_type} is smaller than source {self._source_data_type}"
+        self.classification = "Target Data Type Length Smaller Than Source"
+
+
 # ======================================================================================================================
 # CLASS datatype
 # ======================================================================================================================
-
-
 class datatype:
     cdw: None
     basetype: None
@@ -87,12 +183,14 @@ class datatype:
 
         # Convert to uppercase as it does not matter and is easier to work with
         self.basetype = basetype.upper()
-        self.length = int(length) if length is not None and length != '' else None
+        self.length = int(
+            length) if length is not None and length != '' else None
         # Exception for Falcon
         if self.cdw == 'FALCON' and self.length == 0:
             self.length = 99999
 
-        self.decimal = int(decimal) if decimal is not None and decimal != '' else None
+        self.decimal = int(
+            decimal) if decimal is not None and decimal != '' else None
         self.process_alias()
         self.lookup_type = self.format_type(True)
 
@@ -140,7 +238,8 @@ class datatype:
         Returns:
             bool: True if the data types are compatible, False otherwise
         """
-        other_config = self._source_config if other_data_type.cdw.upper() == 'FALCON' else self._target_config
+        other_config = self._source_config if other_data_type.cdw.upper(
+        ) == 'FALCON' else self._target_config
 
         # Now that we fixed the checks on source data types, this should never fail
         if self.lookup_type not in self.data_config['DATATYPE_MAPPINGS']:
@@ -160,81 +259,71 @@ class datatype:
         Returns:
             bool: True if the data types match and can be mapped, False otherwise
         """
-        validation_status = {
-            "basetype": {"status": False, "comments": []},
-            "length": {"status": False, "comments": []},
-            "decimal": {"status": False, "comments": []}
-        }
+        validation_status_new = []
 
         # Check if compatible
         if self.is_compatible_with(other_data_type):
-            validation_status["basetype"]["status"] = True
             # Check length
             if self.length != other_data_type.length:
                 if self.cdw == 'FALCON' and self.basetype == 'VARCHAR' and self._general_config.get(
                         'MODEL_VALIDATION').get('IGNORE_FALCON_VARCHAR_PRECISION'):
                     # We ignore to chose length for Falcon varchars
-                    validation_status["length"]["status"] = True
-                    validation_status["length"]["comments"].append("Ignoring length for Falcon VARCHAR type")
+                    output_message("Ignoring length for Falcon VARCHAR type")
                 else:
                     if self.length is None or other_data_type.length is None:
                         # Not all data types have a length, but we have proven they are
                         # compatible, so we accept the length
-                        validation_status["length"]["status"] = True
+                        pass
                     else:
                         this_length = self.length if self.length is not None else 0
                         if this_length < other_data_type.length:
-                            # Target is larger than source
-                            if self._general_config.get('MODEL_VALIDATION').get('ACCEPT_LARGER_TARGET_LENGTH_DECIMAL'):
-                                validation_status["length"]["status"] = True
-                                validation_status["length"]["comments"].append(
-                                    "".join((f"Target datatype length {other_data_type.format_type()} is larger than source ",
-                                             f"{self.format_type()} but we are accepting that")))
-                            else:
-                                # Issue: Target is larger than source
-                                validation_status["length"]["status"] = False
-                                validation_status["length"]["comments"].append(
-                                    "".join((f"Target datatype length {other_data_type.format_type()} is larger than source",
-                                             self.format_type())))
+                            validation_status_new.append(
+                                E_VAL_LARGER_TARGET_LENGTH(
+                                    self.format_type(),
+                                    other_data_type.format_type(),
+                                    not self._general_config.get('MODEL_VALIDATION').get(
+                                        'ACCEPT_LARGER_TARGET_LENGTH_DECIMAL')))
+
                         else:
-                            # Issue: Target is larger than source
-                            validation_status["length"]["status"] = False
-                            validation_status["length"]["comments"].append(
-                                "".join((f"Target datatype length {other_data_type.format_type()} is smaller than source ",
-                                         self.format_type())))
-            else:
-                validation_status["length"]["status"] = True
+                            validation_status_new.append(
+                                E_VAL_SMALLER_TARGET_LENGTH(
+                                    self.format_type(),
+                                    other_data_type.format_type()))
 
             if self.decimal != other_data_type.decimal:
                 this_length = self.decimal if self.decimal is not None else 0
                 if this_length < other_data_type.decimal:
-                    # Target is larger than source
-                    if self._general_config.get('MODEL_VALIDATION').get('ACCEPT_LARGER_TARGET_LENGTH_DECIMAL'):
-                        validation_status["decimal"]["status"] = True
-                        validation_status["decimal"]["comments"].append(
-                            "".join((f"Target datatype decimal {other_data_type.format_type()} is larger than source ",
-                                     f"{self.format_type()} but we are accepting that")))
-                    else:
-                        # Issue: Target is larger than source
-                        validation_status["decimal"]["status"] = False
-                        validation_status["decimal"]["comments"].append(
-                            "".join((f"Target datatype decimal {other_data_type.format_type()} is larger than source ",
-                                     self.format_type())))
+                    validation_status_new.append(
+                        E_VAL_LARGER_TARGET_DECIMAL(
+                            self.format_type(),
+                            other_data_type.format_type(),
+                            not self._general_config.get('MODEL_VALIDATION').get(
+                                'ACCEPT_LARGER_TARGET_LENGTH_DECIMAL')))
+
                 elif this_length > other_data_type.decimal:
-                    # Issue: Target is larger than source
-                    validation_status["decimal"]["status"] = False
-                    validation_status["decimal"]["comments"].append(
-                        "".join((f"Target datatype decimal {other_data_type.format_type()} is smaller than source ",
-                                 self.format_type())))
-                else:
-                    validation_status["decimal"]["status"] = True
-            else:
-                validation_status["decimal"]["status"] = True
+                    validation_status_new.append(
+                        E_VAL_SMALLER_TARGET_DECIMAL(
+                            self.format_type(),
+                            other_data_type.format_type()))
+
+            other_config = self._source_config if other_data_type.cdw.upper(
+            ) == 'FALCON' else self._target_config
+            if self.data_config['DATATYPE_MAPPINGS'][self.lookup_type]['YAML_TYPE'] != other_config['DATATYPE_MAPPINGS'][
+                    other_data_type.lookup_type]['YAML_TYPE']:
+                validation_status_new.append(
+                    E_STRICT_DATATYPE_NOTIFICATION(
+                        self.format_type(),
+                        self.data_config['DATATYPE_MAPPINGS'][self.lookup_type]['YAML_TYPE'],
+                        other_data_type.format_type(),
+                        other_config['DATATYPE_MAPPINGS'][
+                            other_data_type.lookup_type]['YAML_TYPE']))
         else:
-            validation_status["basetype"]["status"] = False
-            validation_status["basetype"]["comments"].append(
-                f"Type {self.format_type()} is not compatible with {other_data_type.format_type()}")
-        return validation_status
+            validation_status_new.append(
+                E_VAL_INCOMPATIBLE_DATATYPES(
+                    self.format_type(),
+                    other_data_type.format_type()))
+
+        return validation_status_new
 
 # ======================================================================================================================
 # CLASS dbschema_model
@@ -269,25 +358,13 @@ class dbschema_model:
         self._source_files_processed = []
         self.folder_name = folder_name
         self.load_from_file()
-        self.data_config = self._source_config if self.cdw.upper() == 'FALCON' else self._target_config
+        self.data_config = self._source_config if self.cdw.upper(
+        ) == 'FALCON' else self._target_config
         self.valid_data_types = list(self.data_config['DATATYPE_MAPPINGS'])
 
-        # print(f"Checking valid data types for {self.cdw.upper()}. Valid are:")
-        # print(self.valid_data_types)
-        # print(re.sub(r'\([^)]*\)', '', 'VARCHAR(10)'))
-
-        # invalid_data_types = [
-        #     {'db': db, 's': schema, 't': table, 'c': c, 'dt': self.model[db]['schemas'][schema][table][c].basetype}
-        #     for db in self.model
-        #     for schema in self.model[db]['schemas']
-        #     for table in self.model[db]['schemas'][schema]
-        #     for c in self.model[db]['schemas'][schema][table]
-        #     if self.model[db]['schemas'][schema][table][c].basetype
-        #     not in list(
-        #         [re.sub(r'\([^)]*\)', '', m) for m in self.data_config['DATATYPE_MAPPINGS']])]
-
         invalid_data_types = [
-            {'db': db, 's': schema, 't': table, 'c': c, 'dt': self.model[db]['schemas'][schema][table][c].format_type(True)}
+            {'db': db, 's': schema, 't': table, 'c': c,
+                'dt': self.model[db]['schemas'][schema][table][c].format_type(True)}
             for db in self.model
             for schema in self.model[db]['schemas']
             for table in self.model[db]['schemas'][schema]
@@ -336,7 +413,8 @@ class dbschema_model:
         """
         self.model = {}
         # List all the dbs and csv files in the source folder
-        model_list = glob.glob(self.folder_name + '*.dbs') + glob.glob(self.folder_name + '*.csv')
+        model_list = glob.glob(self.folder_name + '*.dbs') + \
+            glob.glob(self.folder_name + '*.csv')
 
         for db_file in model_list:
             self._source_files_processed.append(db_file)
@@ -378,11 +456,13 @@ class dbschema_model:
             db_file (str): File name of the csv file to process
         """
 
-        output_message(f"Start parsing model(s) from csv file {db_file}...", "debug")
+        output_message(
+            f"Start parsing model(s) from csv file {db_file}...", "debug")
         if os.path.basename(os.path.dirname(db_file)) == 'falcon':
             source_platform = 'Falcon'
         else:
-            source_platform = self._general_config.get('MIGRATION').get('TARGET_PLATFORM')
+            source_platform = self._general_config.get(
+                'MIGRATION').get('TARGET_PLATFORM')
 
         with open(db_file) as csv_file:
             csv_reader = csv.reader(csv_file)
@@ -401,7 +481,8 @@ class dbschema_model:
                         self.model[database_name] = {}
                         self.model[database_name]['database_name'] = database_name
                         self.model[database_name]['source_database'] = source_platform
-                        self.cdw = self.model[database_name]['source_database'].upper()
+                        self.cdw = self.model[database_name]['source_database'].upper(
+                        )
                         self.model[database_name]['total_schemas'] = 0
                         self.model[database_name]['total_tables'] = 0
                         self.model[database_name]['total_columns'] = 0
@@ -410,10 +491,12 @@ class dbschema_model:
                         self.model[database_name]['schemas'][schema_name] = {}
                         self.model[database_name]['total_schemas'] += 1
                     if table_name not in self.model[database_name]['schemas'][schema_name]:
-                        self.model[database_name]['schemas'][schema_name][table_name] = {}
+                        self.model[database_name]['schemas'][schema_name][table_name] = {
+                        }
                         self.model[database_name]['total_tables'] += 1
                     if column_name not in self.model[database_name]['schemas'][schema_name][table_name]:
-                        self.model[database_name]['schemas'][schema_name][table_name][column_name] = {}
+                        self.model[database_name]['schemas'][schema_name][table_name][column_name] = {
+                        }
                         self.model[database_name]['total_columns'] += 1
 
                     self.model[database_name]['schemas'][schema_name][table_name][column_name] = datatype(
@@ -454,11 +537,13 @@ class dbschema_model:
             f"Start parsing database {database_name} ({self.model[database_name]['source_database']}) from dbs...")
         for schema in db_data:
             if schema.tag == 'schema':
-                schema_name = schema.attrib['name'].encode("ascii", errors="ignore").decode()
+                schema_name = schema.attrib['name'].encode(
+                    "ascii", errors="ignore").decode()
                 tables = {}
                 for table in schema:
                     if table.tag == 'table':
-                        table_name = table.attrib['name'].encode("ascii", errors="ignore").decode()
+                        table_name = table.attrib['name'].encode(
+                            "ascii", errors="ignore").decode()
 
                         columns = {}
                         for column in table:
@@ -470,10 +555,12 @@ class dbschema_model:
                                     ["decimal"] if "decimal" in column.attrib else None)
 
                         tables[table_name] = columns
-                        self.model[database_name]['total_columns'] += len(columns)
+                        self.model[database_name]['total_columns'] += len(
+                            columns)
                 self.model[database_name]['schemas'][schema_name] = tables
                 self.model[database_name]['total_tables'] += len(tables)
-        self.model[database_name]['total_schemas'] = len(self.model[database_name]['schemas'])
+        self.model[database_name]['total_schemas'] = len(
+            self.model[database_name]['schemas'])
 
         output_message(''.join(
             (f"Parsed database {database_name} ({self.model[database_name]['source_database']}): ",
@@ -568,9 +655,9 @@ class dbschema_model:
                     'dummy_restaurants')))
 
         # output_message(self.get_column_list_for_table(tdatabase, tschema, ttable))
-        ttt = [f"{tdatabase}.{tschema}.{ttable}" for tdatabase in self.model
-               for tschema in self.model[tdatabase]['schemas']
-               for ttable in self.model[tdatabase]['schemas'][tschema]]
+        # ttt = [f"{tdatabase}.{tschema}.{ttable}" for tdatabase in self.model
+        #        for tschema in self.model[tdatabase]['schemas']
+        #        for ttable in self.model[tdatabase]['schemas'][tschema]]
 
         # This goes wrong when there is a (user uploaded) table which does not exist in source and no match can be found
         # for example, the column names are too different or there are more columns in source than on target
@@ -611,7 +698,8 @@ class dbschema_model:
                                  # amount of identical column names (fuzzy matched)
                                  "rank": 100
                                  if ttable.casefold() == source_table.casefold() and len(source_column_list) ==
-                                 len(self.get_column_list_for_table(tdatabase, tschema, ttable))
+                                 len(self.get_column_list_for_table(
+                                     tdatabase, tschema, ttable))
 
                                  # -------------------------------------------------------------------------------
                                  # Score = 75 - 85 =>
@@ -624,7 +712,8 @@ class dbschema_model:
                                                                      source_table.casefold())),
                                        1)
                                  if ttable.casefold() != source_table.casefold() and len(source_column_list) ==
-                                 len(self.get_column_list_for_table(tdatabase, tschema, ttable))
+                                 len(self.get_column_list_for_table(
+                                     tdatabase, tschema, ttable))
 
                                  # -------------------------------------------------------------------------------
                                  # Score = 50 => identical column names (case insensitive). All columns of the
@@ -632,7 +721,8 @@ class dbschema_model:
                                  # columns.
                                  else 50
                                  if ttable.casefold() == source_table.casefold() and len(source_column_list) <
-                                 len(self.get_column_list_for_table(tdatabase, tschema, ttable))
+                                 len(self.get_column_list_for_table(
+                                     tdatabase, tschema, ttable))
 
 
                                  # -------------------------------------------------------------------------------
@@ -649,7 +739,8 @@ class dbschema_model:
                                                                      source_table.casefold())),
                                        1)
                                  if ttable.casefold() != source_table.casefold() and len(source_column_list) <
-                                 len(self.get_column_list_for_table(tdatabase, tschema, ttable)) and len(source_column_list)
+                                 len(self.get_column_list_for_table(
+                                     tdatabase, tschema, ttable)) and len(source_column_list)
                                  >= self._general_config.get('MODEL_VALIDATION').get('MIN_COL_COUNT_FUZZY')
 
                                  # -------------------------------------------------------------------------------
@@ -672,7 +763,8 @@ class dbschema_model:
         ]
 
         # Remove matches with rank of 0
-        matching_tables = [mt for mt in matching_tables_prep if float(mt['rank']) > 0]
+        matching_tables = [
+            mt for mt in matching_tables_prep if float(mt['rank']) > 0]
 
         # --------------------------------------------------------------------------------------------
         # Build a list of similar tables, these are tables which are not matching candidates but are
@@ -704,27 +796,29 @@ class dbschema_model:
         # ----------------------------------------------------------------------------------
         if len(matching_tables) > 0 and len([m['rank'] for m in matching_tables if m['available']]) > 0:
             # Get tha maximum rank of the available tables
-            max_rank = max([m['rank'] for m in matching_tables if m['available']])
+            max_rank = max([m['rank']
+                           for m in matching_tables if m['available']])
 
             # If the rank is higher than the set minimal rank for a match (config)
             if max_rank >= self._general_config.get('MODEL_VALIDATION').get('MINIMUM_SCORE_FOR_MATCH'):
                 # Add details to the mapping comments
-                mapping_details.add_comment(
+                mapping_details.add_notification(VAL_NOTIFICATION(
                     f"{source_db}.{source_schema}.{source_table}",
-                    "Matching Candidates:",
-                    "0-INFO")
+                    "Matching Candidates:"))
 
                 # 'Pick' the candidate with the highest rank
                 picked = False
                 for m in matching_tables:
-                    picked = not (picked) and m['rank'] == max_rank and m['available']
+                    picked = not (
+                        picked) and m['rank'] == max_rank and m['available']
 
                     # Add a comment with the score explanation
-                    mapping_details.add_comment(
-                        f"{source_db}.{source_schema}.{source_table}",
-                        f"----{m['database']}.{m['schema']}.{m['table']} (Available:{m['available']}, " +
-                        f"Score:{m['rank']}) {'    <==== BEST CANDIDATE' if picked else ''}",
-                        "0-INFO")
+                    mapping_details.add_notification(
+                        VAL_NOTIFICATION(
+                            f"{source_db}.{source_schema}.{source_table}",
+                            f"----{m['database']}.{m['schema']}.{m['table']} (Available:{m['available']}, " +
+                            f"Score:{m['rank']}) {'    <==== BEST CANDIDATE' if picked else ''}",))
+
                     m['status_msg'] = ""
                     if picked:
                         if m['rank'] == 100:
@@ -744,21 +838,25 @@ class dbschema_model:
                                 f"Table {m['table']} matched via fuzzy match: different table name, ",
                                 "target has more columns than source will might result in a partial match"))
 
-                        mapping_details.add_comment(
-                            f"{source_db}.{source_schema}.{source_table}",
-                            "------" + str(m['status_msg']),
-                            "0-INFO")
+                        mapping_details.add_notification(
+                            VAL_NOTIFICATION(
+                                f"{source_db}.{source_schema}.{source_table}",
+                                "------" + str(m['status_msg'])))
 
                         result = m
                         break
 
         # Output similar tables. These table are currently not valid mappings, but they might help investigation
         if len(sim_table_ranking) > 0:
-            mapping_details.add_comment(f"{source_db}.{source_schema}.{source_table}",
-                                        "Similar (non matching) tables:", "0-INFO")
+            mapping_details.add_notification(
+                VAL_NOTIFICATION(
+                    f"{source_db}.{source_schema}.{source_table}",
+                    "Similar (non matching) tables:"))
             for t in sim_table_ranking:
-                mapping_details.add_comment(f"{source_db}.{source_schema}.{source_table}",
-                                            f"----{t['table']} (Similarity Percent: {t['sim_pct']})", "0-INFO")
+                mapping_details.add_notification(
+                    VAL_NOTIFICATION(
+                        f"{source_db}.{source_schema}.{source_table}",
+                        f"----{t['table']} (Similarity Percent: {t['sim_pct']})"))
 
         return result
 
@@ -808,7 +906,8 @@ class business_model:
     def locate_by_id(self, table_id):
         table_details = None
         if table_id in {t['TableGUID'] for t in self.src_model_tables}:
-            table_details = [t for t in self.src_model_tables if t['TableGUID'] == table_id]
+            table_details = [
+                t for t in self.src_model_tables if t['TableGUID'] == table_id]
             output_message(
                 f"Located user uploaded table source business model. Actual name is {table_details[0]['PhysicalTableName']}")
             # As this is a 100% sure match overwrite table and columns to the mappings by
@@ -850,10 +949,12 @@ class connections_yaml:
             raise EInputFilesMissing('input yaml', self._general_config.get(
                 'FILE_LOCATIONS').get('SRC_YAML_FOLDER'))
 
-        self.source_file_name = self._general_config.get('FILE_LOCATIONS').get('SRC_YAML_FOLDER') + file
+        self.source_file_name = self._general_config.get(
+            'FILE_LOCATIONS').get('SRC_YAML_FOLDER') + file
         self.source_model = source_model
         self.target_model = target_model
-        self.business_model = business_model(self._general_config.get('FILE_LOCATIONS').get('BUSINESS_MODEL_FOLDER'))
+        self.business_model = business_model(self._general_config.get(
+            'FILE_LOCATIONS').get('BUSINESS_MODEL_FOLDER'))
         self.tables_used_for_renaming = []
         self.mapping_details = mapping_details
         self.load_yaml_from_file()
@@ -942,14 +1043,16 @@ class connections_yaml:
             if table['external_table']['falcon_db'].lower() == 'falconuserdatadatabase' and \
                     table['external_table']['falcon_schema'].lower() == 'falconuserdataschema' and \
                     table['external_table']['falcon_table'].lower()[:9] == 'userdata_':
-                output_message("Identified as user uploaded table. Trying to locate in business model.")
+                output_message(
+                    "Identified as user uploaded table. Trying to locate in business model.")
                 model_table = self.business_model.locate_by_id(table['id'])
                 # As this is a 100% sure match overwrite table and columns to the mappings by locating this matched
                 # name as the target but with this source db and schema
                 if model_table is not None:
                     table['external_table']['falcon_table'] = model_table[0]['PhysicalTableName']
                     for col in model_table:
-                        mcol = [c for c in table['column'] if c['id'] == col['ColumnGUID']]
+                        mcol = [c for c in table['column']
+                                if c['id'] == col['ColumnGUID']]
                         mcol[0]['external_column'] = col['PhysicalColumnName']
                 else:
                     # Cannot locate user uploaded table in business model
@@ -998,8 +1101,10 @@ class connections_yaml:
         t_cnt = len([t for t in self.contents['table']])
         c_cnt = len([c for t in self.contents['table'] for c in t['column']])
 
-        job_tables = job_progress.add_task("Processing table mappings", total=t_cnt)
-        job_columns = job_progress.add_task("Processing column mappings", total=c_cnt)
+        job_tables = job_progress.add_task(
+            "Processing table mappings", total=t_cnt)
+        job_columns = job_progress.add_task(
+            "Processing column mappings", total=c_cnt)
 
         total = sum(task.total for task in job_progress.tasks)
         overall_progress = Progress()
@@ -1027,7 +1132,8 @@ class connections_yaml:
 
         with Live(progress_table, refresh_per_second=10):
             for table in self.contents['table']:
-                output_message(f"\nMigrating table {table['external_table']['falcon_table']}")
+                output_message(
+                    f"\nMigrating table {table['external_table']['falcon_table']}")
                 # ------------------------------------------------------------------------------------------------
                 # Most of the mapping should have been done in the DDL compare already, so let's first check if we
                 # have a mapping for this table and the columns
@@ -1075,8 +1181,10 @@ class connections_yaml:
                                  f"{table['external_table']['table_name']} in override file"))
                         if not overall_progress.finished:
                             job_progress.advance(job_columns)
-                            completed = sum(task.completed for task in job_progress.tasks)
-                            overall_progress.update(overall_task, completed=completed)
+                            completed = sum(
+                                task.completed for task in job_progress.tasks)
+                            overall_progress.update(
+                                overall_task, completed=completed)
 
                 elif len(table_mappings) == 1:
                     #  Table mapped
@@ -1109,7 +1217,8 @@ class connections_yaml:
                                     self._general_config,
                                     self._source_config,
                                     self._target_config,
-                                    self._general_config.get('MIGRATION').get('TARGET_PLATFORM'),
+                                    self._general_config.get(
+                                        'MIGRATION').get('TARGET_PLATFORM'),
                                     col_mappings[0].tar_datatype.upper(),
                                     col_mappings[0].tar_datatype_length,
                                     col_mappings[0].tar_datatype_decimal)
@@ -1122,8 +1231,10 @@ class connections_yaml:
                                      f"{table['external_table']['table_name']} in override file")))
                             if not overall_progress.finished:
                                 job_progress.advance(job_columns)
-                                completed = sum(task.completed for task in job_progress.tasks)
-                                overall_progress.update(overall_task, completed=completed)
+                                completed = sum(
+                                    task.completed for task in job_progress.tasks)
+                                overall_progress.update(
+                                    overall_task, completed=completed)
 
                 else:
                     # So we have no mapping for the table, this is most likely that the table did not exist in the
@@ -1199,8 +1310,10 @@ class connections_yaml:
                                         tar_datatype_decimal=c_mapping['dt'].decimal))
                             if not overall_progress.finished:
                                 job_progress.advance(job_columns)
-                                completed = sum(task.completed for task in job_progress.tasks)
-                                overall_progress.update(overall_task, completed=completed)
+                                completed = sum(
+                                    task.completed for task in job_progress.tasks)
+                                overall_progress.update(
+                                    overall_task, completed=completed)
 
                     else:
                         self.mapping_details.merge_record(
@@ -1231,18 +1344,22 @@ class connections_yaml:
                                     tar_datatype_length=None, tar_datatype_decimal=None))
                             if not overall_progress.finished:
                                 job_progress.advance(job_columns)
-                                completed = sum(task.completed for task in job_progress.tasks)
-                                overall_progress.update(overall_task, completed=completed)
+                                completed = sum(
+                                    task.completed for task in job_progress.tasks)
+                                overall_progress.update(
+                                    overall_task, completed=completed)
 
                 if not overall_progress.finished:
                     job_progress.advance(job_tables)
-                    completed = sum(task.completed for task in job_progress.tasks)
+                    completed = sum(
+                        task.completed for task in job_progress.tasks)
                     overall_progress.update(overall_task, completed=completed)
 
         self.mapping_details.export()
         # Validate the YAML for unmapped, duplicates
         if len(errors) > 0:
-            output_message("\nThe following errors occurred during migration:" + f"--{errors[0]}", "error")
+            output_message(
+                "\nThe following errors occurred during migration:" + f"--{errors[0]}", "error")
 
         yaml_validated = self.validate_yaml_mappings()
         et = time.time()
@@ -1262,7 +1379,8 @@ class connections_yaml:
         # Cleans up YAML from the additional attributes
         if self._general_config.get('YAML_PROCESSING').get('YAML_CLEANUP'):
             for table in self.contents['table']:
-                tbl_cleanup = self._general_config.get('YAML_PROCESSING').get('YAML_TABLE_CLEAN_UP')
+                tbl_cleanup = self._general_config.get(
+                    'YAML_PROCESSING').get('YAML_TABLE_CLEAN_UP')
                 # ONLY FOR ADW
                 if self._general_config.get('MIGRATION').get('TARGET_PLATFORM') == "ADW":
                     tbl_cleanup.append('db_name')
@@ -1316,7 +1434,8 @@ class connections_yaml:
                   f"{t['external_table']['falcon_table']}") for t in self.contents['table']])[t] > 1]
         if len(dup_sources) > 0:
             success = False
-            output_message("The following sources have been mapped more than once:")
+            output_message(
+                "The following sources have been mapped more than once:")
             output_message(dup_sources)
 
         dup_targets = [
@@ -1330,7 +1449,8 @@ class connections_yaml:
                   "{t['external_table']['table_name']}") for t in self.contents['table']])[t] > 1]
         if len(dup_targets) > 0:
             success = False
-            output_message("The following targets have been mapped more than once:")
+            output_message(
+                "The following targets have been mapped more than once:")
             output_message(dup_targets)
 
         if success:
@@ -1393,6 +1513,7 @@ class mapping_record:
 class mapping_details:
     mappings = []
     comments = {}
+    notifications = {}
 
     def __init__(self, general_config, source_config, target_config, source_cdw,
                  target_cdw, source_files_processed, target_files_processed):
@@ -1405,10 +1526,10 @@ class mapping_details:
         self.target_cdw = target_cdw
         self.load_overrides()
 
-    def add_comment(self, table, comment, severity):
-        if table not in self.comments:
-            self.comments[table] = []
-        self.comments[table].append({"severity": severity, "comment": comment})
+    def add_notification(self, notification):
+        if notification.table not in self.notifications:
+            self.notifications[notification.table] = []
+        self.notifications[notification.table].append(notification)
 
     def merge_record(self, mapping_record):
         updated = False
@@ -1431,7 +1552,8 @@ class mapping_details:
 
     def validate_override_file(self):
         invalid_data_types = [
-            {'db': dt.tar_database, 's': dt.tar_schema, 't': dt.tar_table, 'c': dt.tar_column, 'dt': dt.tar_datatype}
+            {'db': dt.tar_database, 's': dt.tar_schema, 't': dt.tar_table,
+                'c': dt.tar_column, 'dt': dt.tar_datatype}
             for dt in self.mappings
             if dt.tar_datatype
             not in list([re.sub(r'\([^)]*\)', '', m) for m in self._target_config['DATATYPE_MAPPINGS']]) and dt.tar_datatype
@@ -1474,7 +1596,8 @@ class mapping_details:
             with open(self._general_config.get('FILE_LOCATIONS').get('MANUAL_OVERRIDES'), "w") as stream:
                 writer = csv.writer(stream)
                 # Not to happy with the list comp here, must be a better way to get props in order without methods
-                writer.writerow([x for ind, x in enumerate(list(mapping_record.__dict__.keys())) if 19 > ind > 0])
+                writer.writerow([x for ind, x in enumerate(
+                    list(mapping_record.__dict__.keys())) if 19 > ind > 0])
                 writer.writerows(export_set)
 
     def get(self, mapping_category, mapping_type, db_name, schema_name,
@@ -1504,7 +1627,8 @@ class mapping_details:
     def generate_report(self, ddl_mapping_time, src_stats, tar_stats):
         report = comparison_report(self._general_config)
 
-        report.add_report_element(report_section_title('Model Comparison - Validation Summary', True))
+        report.add_report_element(report_section_title(
+            'Model Comparison - Validation Summary', True))
 
         # Comparison Summary Table
         report.add_report_element(table_comparison_summary(
@@ -1575,48 +1699,74 @@ Scoring explained:
 
         totals = dict(
             sorted(
-                {**{'3-LOW': 0, '2-MEDIUM': 0, '1-SEVERE': 0},
-                    **dict(Counter([c['severity'] for t in self.comments for c in self.comments[t]]))}.items()))
+                {**{'2-LOW': 0, '1-SEVERE': 0},
+                    **dict(Counter([c.severity for t in self.notifications for c in self.notifications[t]]))}.items()))
 
-        # Table Issue Summary
+        # Issue Summary
         issue_summary_data = []
-        for table in self.comments:
-            cnts = dict(sorted({**{'3-LOW': 0, '2-MEDIUM': 0, '1-SEVERE': 0}, **
-                                dict(Counter([c['severity'] for c in self.comments[table]]))}.items()))
-            if cnts['3-LOW'] + cnts['2-MEDIUM'] + cnts['1-SEVERE'] > 0:
-                issue_summary_data.append([table, cnts['1-SEVERE'], cnts['2-MEDIUM'], cnts['3-LOW']])
+        notification_data = dict(sorted(Counter(
+            [f"{c.severity} - {c.classification}" for t in self.notifications for c in self.notifications[t]
+             if c.severity != '0-INFO']).items()))
+        total_count = 0
+        for n in notification_data:
+            issue_summary_data.append([n, notification_data[n]])
+            total_count += notification_data[n]
 
         report.add_report_element(table_issue_summary(
-            title="Summary of table issues detected",
-            headers=['Qualified Table Name', 'Severe Issues', 'Medium Issues', 'Minor Issues'],
+            title="Summary of issues detected",
+            headers=['Issue', 'Count'],
             data=issue_summary_data,
-            footers=['TOTAL', totals['1-SEVERE'], totals['2-MEDIUM'], totals['3-LOW']],
+            footers=['TOTAL', total_count],
             msg_if_empty="\n" +
             "**************************************************************************************************\n" +
             "* SUCCESS: Source and target model have been successfully validated and no issues have been found.\n"
             "**************************************************************************************************\n"
         ))
 
-        report.add_report_element(report_section_title('Model Comparison - Detailed Results per table', True))
+        # Table Issue Summary
+        issue_summary_data = []
+        for table in self.notifications:
+            cnts = dict(sorted({**{'2-LOW': 0, '1-SEVERE': 0}, **
+                                dict(Counter([c.severity for c in self.notifications[table]]))}.items()))
 
-        for table in self.comments:
-            cnts = dict(sorted({**{'3-LOW': 0, '2-MEDIUM': 0, '1-SEVERE': 0}, **
-                                dict(Counter([c['severity'] for c in self.comments[table]]))}.items()))
+            if cnts['2-LOW'] + cnts['1-SEVERE'] > 0:
+                issue_summary_data.append(
+                    [table, cnts['1-SEVERE'], cnts['2-LOW']])
+
+        report.add_report_element(table_issue_summary(
+            title="Summary of table issues detected",
+            headers=['Qualified Table Name', 'Severe Issues', 'Minor Issues'],
+            data=issue_summary_data,
+            footers=['TOTAL', totals['1-SEVERE'], totals['2-LOW']],
+            msg_if_empty="\n" +
+            "**************************************************************************************************\n" +
+            "* SUCCESS: Source and target model have been successfully validated and no issues have been found.\n"
+            "**************************************************************************************************\n"
+        ))
+
+        report.add_report_element(report_section_title(
+            'Model Comparison - Detailed Results per table', True))
+
+        for table in self.notifications:
+            cnts = dict(sorted({**{'2-LOW': 0, '1-SEVERE': 0}, **
+                                dict(Counter([c.severity for c in self.notifications[table]]))}.items()))
 
             # Table issue count
-            report.add_report_element(report_section_title(f'Detailed validation information for {table}'))
+            report.add_report_element(report_section_title(
+                f'Detailed validation information for {table}'))
 
             report.add_report_element(table_issue_detail(
-                headers=["Qualified Table Name", "Severe Issues", "Medium Issues", "Minor Issues"],
-                data=[[table, cnts['1-SEVERE'], cnts['2-MEDIUM'], cnts['3-LOW']]]))
+                headers=["Qualified Table Name",
+                         "Severe Issues", "Minor Issues"],
+                data=[[table, cnts['1-SEVERE'], cnts['2-LOW']]]))
 
             # Table Issue List
             issue_list_data = sorted(
-                [c for c in self.comments[table] if c['severity'] != '0-INFO'],
-                key=lambda d: d['severity'])
+                [c for c in self.notifications[table] if c.severity != '0-INFO'],
+                key=lambda d: d.severity)
             issue_data = []
             for cmt in issue_list_data:
-                issue_data.append([cmt['severity'], cmt['comment']])
+                issue_data.append([cmt.severity, cmt.msg])
 
             report.add_report_element(table_issue_list(
                 headers=["Issue Severity", "Issue Description"],
@@ -1637,8 +1787,8 @@ Similarity Percent  :   How similar are the two tables in terms of columns.
 """
             # Table Info List
             info_list_data = []
-            for cmt in [c for c in self.comments[table] if c['severity'] == '0-INFO']:
-                info_list_data.append([cmt['comment']])
+            for cmt in [c for c in self.notifications[table] if c.severity == '0-INFO']:
+                info_list_data.append([cmt.msg])
             report.add_report_element(table_info_list(
                 headers=["Additional Information"],
                 clarification=report_clarification,
@@ -1651,19 +1801,30 @@ Similarity Percent  :   How similar are the two tables in terms of columns.
             title="Files processed",
             headers=["File Type", "File Location"],
             data=[
-                [f"Source Model Files ({len(self._source_files_processed)})", "\n".join(self._source_files_processed)],
-                [f"Target Model Files ({len(self._target_files_processed)})", "\n".join(self._target_files_processed)],
-                ["Source Business Model", self._general_config.get('FILE_LOCATIONS').get('BUSINESS_MODEL_FOLDER')]
+                [f"Source Model Files ({len(self._source_files_processed)})", "\n".join(
+                    self._source_files_processed)],
+                [f"Target Model Files ({len(self._target_files_processed)})", "\n".join(
+                    self._target_files_processed)],
+                ["Source Business Model", self._general_config.get(
+                    'FILE_LOCATIONS').get('BUSINESS_MODEL_FOLDER')]
             ]
         ))
 
-        # if typer.confirm("\nDo you want to list the validation output on screen? (Can be lengthy)"):
-        #     report.to_screen()
+        # Output settings to report
+        fmt_settings = [[cat, setting, self._general_config[cat][setting]] for cat in self._general_config if cat not in [
+            'DELTA_MIGRATION', 'TEMPLATES'] for setting in self._general_config[cat]]
+        report.add_report_element(table_setting_list(
+            title="Migration Tools Configuration",
+            headers=["Category", "Parameter", "Setting"],
+            data=fmt_settings,
+            force_justification=['left', 'left', 'left']
+        ))
+
         report.to_file()
 
     def has_issues(self):
-        return len([c for t in self.comments for c in self.comments[t]
-                    if c['severity'] in ['3-LOW', '2-MEDIUM', '1-SEVERE']])
+        return len([c for t in self.notifications for c in self.notifications[t]
+                    if c.severity in ['2-LOW', '1-SEVERE']])
 
 
 # ======================================================================================================================
@@ -1679,8 +1840,10 @@ class connection_migrator:
         self._general_config = general_config
 
         # Validate platforms
-        self.check_platform_supported(general_config["MIGRATION"]["SOURCE_PLATFORM"])
-        self.check_platform_supported(general_config["MIGRATION"]["TARGET_PLATFORM"])
+        self.check_platform_supported(
+            general_config["MIGRATION"]["SOURCE_PLATFORM"])
+        self.check_platform_supported(
+            general_config["MIGRATION"]["TARGET_PLATFORM"])
 
         self._source_config = toml.load(
             f"config/{self._general_config['MIGRATION']['SOURCE_PLATFORM'].casefold()}.toml")
@@ -1799,14 +1962,19 @@ class connection_migrator:
 
             stats = self.source_model.get_stats()
 
-            job_databases = job_progress.add_task("Validating Databases", total=stats['db_cnt'])
-            job_schemas = job_progress.add_task("Validating Schemas", total=stats['sch_cnt'])
-            job_tables = job_progress.add_task("Validating Tables", total=stats['tbl_cnt'])
-            job_columns = job_progress.add_task("Validating Columns", total=stats['col_cnt'])
+            job_databases = job_progress.add_task(
+                "Validating Databases", total=stats['db_cnt'])
+            job_schemas = job_progress.add_task(
+                "Validating Schemas", total=stats['sch_cnt'])
+            job_tables = job_progress.add_task(
+                "Validating Tables", total=stats['tbl_cnt'])
+            job_columns = job_progress.add_task(
+                "Validating Columns", total=stats['col_cnt'])
 
             total = sum(task.total for task in job_progress.tasks)
             overall_progress = Progress()
-            overall_task = overall_progress.add_task("All Jobs", total=int(total))
+            overall_task = overall_progress.add_task(
+                "All Jobs", total=int(total))
 
             progress_table = Table.grid()
             progress_table.add_row(
@@ -1836,17 +2004,21 @@ class connection_migrator:
                 for db in self.source_model.model:
                     for s in self.source_model.model[db]['schemas']:
                         for t in self.source_model.model[db]['schemas'][s]:
-                            output_message(f"Processing source table {db}.{s}.{t}...")
+                            output_message(
+                                f"Processing source table {db}.{s}.{t}...")
                             # Initialise mapping record
-                            mapping_records = self.mapping_details.get('DDL', 'TABLE', db, s, t)
+                            mapping_records = self.mapping_details.get(
+                                'DDL', 'TABLE', db, s, t)
                             if len(mapping_records) > 0 and mapping_records[0].status == 'OVERRIDE':
-                                output_message('Found an override entry for this table')
+                                output_message(
+                                    'Found an override entry for this table')
                                 table_mapping_record = mapping_records[0]
                                 db_match = table_mapping_record.tar_database
                                 s_match = table_mapping_record.tar_schema
                                 t_match = table_mapping_record.tar_table
                             else:
-                                output_message('No mapping details available yet')
+                                output_message(
+                                    'No mapping details available yet')
                                 table_mapping_record = mapping_record(
                                     mapping_category="DDL",
                                     mapping_type="TABLE",
@@ -1875,14 +2047,14 @@ class connection_migrator:
                                     if matching_tables['rank'] == 100:
                                         table_mapping_record.mark_mapped()
                                     else:
-                                        self.mapping_details.add_comment(
-                                            f"{db}.{s}.{t}",
-                                            f"{matching_tables['status_msg']}, please review", "3-LOW")
+                                        self.mapping_details.add_notification(
+                                            E_FUZZY_MATCH_NOTIFICATION(
+                                                f"{db}.{s}.{t}", f"{matching_tables['status_msg']}, please review"))
                                 else:
-                                    output_message('No suitable matching table could be found.')
-                                    self.mapping_details.add_comment(
-                                        f"{db}.{s}.{t}", "No suitable matching table could be found",
-                                        "1-SEVERE")
+                                    output_message(
+                                        'No suitable matching table could be found.')
+                                    self.mapping_details.add_notification(
+                                        E_NO_SUITABLE_MATCH(f"{db}.{s}.{t}"))
 
                             if (db_match is not None and s_match is not None
                                     and t_match is not None):
@@ -1920,7 +2092,8 @@ class connection_migrator:
                                         if MigrationUtils.fuzzy_strip(c.casefold()) in [MigrationUtils.fuzzy_strip(
                                             c.casefold())
                                                 for c in self.target_model.model[db_match]['schemas'][s_match][t_match]]:
-                                            column_mapping_record.update(tar_column=c)
+                                            column_mapping_record.update(
+                                                tar_column=c)
                                             c_match = [
                                                 c1
                                                 for c1 in self.target_model.model[db_match]['schemas'][s_match]
@@ -1928,9 +2101,8 @@ class connection_migrator:
                                                 if MigrationUtils.fuzzy_strip(c1.casefold()) == MigrationUtils.fuzzy_strip(
                                                     c.casefold())][0]
                                         else:
-                                            self.mapping_details.add_comment(
-                                                f"{db}.{s}.{t}",
-                                                f"Column {c} (or anything matching) has not been found.", "1-SEVERE")
+                                            self.mapping_details.add_notification(
+                                                E_COLUMN_NOT_FOUND(f"{db}.{s}.{t}", c))
 
                                         if c_match is not None:
                                             output_message(
@@ -1938,38 +2110,30 @@ class connection_migrator:
 
                                             dt_val = self.source_model.model[db]['schemas'][s][t][c].compare(
                                                 self.target_model.model[db_match]['schemas'][s_match][t_match][c_match])
-                                            if not dt_val['basetype']["status"]:
-                                                for c2 in dt_val['basetype']['comments']:
-                                                    self.mapping_details.add_comment(
-                                                        f"{db}.{s}.{t}",
-                                                        f"Column {c}<-->{c_match}: {c2}", "1-SEVERE")
-                                            else:
-                                                column_mapping_record.update(
-                                                    tar_datatype=self.target_model.model[db_match]['schemas'][s_match][t_match][c_match].basetype)
-                                                if not dt_val['length']["status"]:
-                                                    for c3 in dt_val['length']['comments']:
-                                                        self.mapping_details.add_comment(
-                                                            f"{db}.{s}.{t}",
-                                                            f"Column {c}<-->{c_match}: {c3}", "3-LOW")
-                                                else:
-                                                    column_mapping_record.update(
-                                                        tar_datatype_length=self.target_model.model[db_match]['schemas'][s_match][t_match][c_match].length)
-                                                    if not dt_val['decimal']["status"]:
-                                                        for c4 in dt_val['decimal']['comments']:
-                                                            self.mapping_details.add_comment(
-                                                                f"{db}.{s}.{t}",
-                                                                f"Column {c}<-->{c_match}: {c4}", "3-LOW")
-                                                    else:
-                                                        column_mapping_record.update(
-                                                            tar_datatype_decimal=self.target_model.model[db_match][
-                                                                'schemas'][s_match][t_match][c_match].decimal,
-                                                            status=table_mapping_record.status)
 
-                                        self.mapping_details.merge_record(column_mapping_record)
+                                            for dts in dt_val:
+                                                dts.set_table(f"{db}.{s}.{t}")
+                                                dts.msg = f"Column {c}<-->{c_match}: {dts.msg}"
+                                                self.mapping_details.add_notification(
+                                                    dts)
+
+                                            column_mapping_record.update(
+                                                tar_datatype=self.target_model.model[db_match][
+                                                    'schemas'][s_match][t_match][c_match].basetype,
+                                                tar_datatype_length=self.target_model.model[db_match][
+                                                    'schemas'][s_match][t_match][c_match].length,
+                                                tar_datatype_decimal=self.target_model.model[db_match][
+                                                    'schemas'][s_match][t_match][c_match].decimal,
+                                                status=table_mapping_record.status)
+
+                                        self.mapping_details.merge_record(
+                                            column_mapping_record)
                                     if not overall_progress.finished:
                                         job_progress.advance(job_columns)
-                                        completed = sum(task.completed for task in job_progress.tasks)
-                                        overall_progress.update(overall_task, completed=completed)
+                                        completed = sum(
+                                            task.completed for task in job_progress.tasks)
+                                        overall_progress.update(
+                                            overall_task, completed=completed)
 
                             else:
                                 # Table does not exist, we are going to export it for confirmation, for ease we are
@@ -1996,7 +2160,8 @@ class connection_migrator:
                                             src_table=t,
                                             src_column=c,
                                             src_datatype=self.source_model.model[db]['schemas'][s][t][c].basetype,
-                                            src_datatype_length=self.source_model.model[db]['schemas'][s][t][c].length,
+                                            src_datatype_length=self.source_model.model[
+                                                db]['schemas'][s][t][c].length,
                                             src_datatype_decimal=self.source_model.model[db]['schemas'][s][t][c].decimal)
 
                                         if self._general_config.get('MODEL_VALIDATION').get(
@@ -2008,32 +2173,43 @@ class connection_migrator:
                                                 tar_column=c,
                                                 tar_datatype=self.map_target_to_source_dt(
                                                     self.source_model.model[db]['schemas'][s][t][c].basetype),
-                                                tar_datatype_length=self.source_model.model[db]['schemas'][s][t][c].length,
+                                                tar_datatype_length=self.source_model.model[
+                                                    db]['schemas'][s][t][c].length,
                                                 tar_datatype_decimal=self.source_model.model[db]['schemas'][s][t][c].decimal)
                                     if column_mapping_record.status != 'OVERRIDE':
-                                        self.mapping_details.merge_record(column_mapping_record)
+                                        self.mapping_details.merge_record(
+                                            column_mapping_record)
 
                                     if not overall_progress.finished:
                                         job_progress.advance(job_columns)
-                                        completed = sum(task.completed for task in job_progress.tasks)
-                                        overall_progress.update(overall_task, completed=completed)
+                                        completed = sum(
+                                            task.completed for task in job_progress.tasks)
+                                        overall_progress.update(
+                                            overall_task, completed=completed)
 
-                            self.mapping_details.merge_record(table_mapping_record)
+                            self.mapping_details.merge_record(
+                                table_mapping_record)
 
                             if not overall_progress.finished:
                                 job_progress.advance(job_tables)
-                                completed = sum(task.completed for task in job_progress.tasks)
-                                overall_progress.update(overall_task, completed=completed)
+                                completed = sum(
+                                    task.completed for task in job_progress.tasks)
+                                overall_progress.update(
+                                    overall_task, completed=completed)
 
                         if not overall_progress.finished:
                             job_progress.advance(job_schemas)
-                            completed = sum(task.completed for task in job_progress.tasks)
-                            overall_progress.update(overall_task, completed=completed)
+                            completed = sum(
+                                task.completed for task in job_progress.tasks)
+                            overall_progress.update(
+                                overall_task, completed=completed)
 
                     if not overall_progress.finished:
                         job_progress.advance(job_databases)
-                        completed = sum(task.completed for task in job_progress.tasks)
-                        overall_progress.update(overall_task, completed=completed)
+                        completed = sum(
+                            task.completed for task in job_progress.tasks)
+                        overall_progress.update(
+                            overall_task, completed=completed)
 
             et = time.time()
             elapsed_time = round(et - st, 1)
@@ -2041,7 +2217,8 @@ class connection_migrator:
             if self.mapping_details.has_issues() > 0:
                 issue_text = '\nThe DDL Comparison raised ' + \
                     f'{self.mapping_details.has_issues()} issues. The mapping overrides file can be found here: ' + \
-                    os.getcwd() + "/" + self._general_config["FILE_LOCATIONS"]["MANUAL_OVERRIDES"][2:] + '.'
+                    os.getcwd() + "/" + \
+                    self._general_config["FILE_LOCATIONS"]["MANUAL_OVERRIDES"][2:] + '.'
                 msg_style = "error"
             else:
                 issue_text = "No major issues where detected."
@@ -2073,4 +2250,7 @@ class connection_migrator:
             self.mapping_details.export()
 
         else:
-            raise EModelValidationError(self.mapping_details.has_issues(), self._general_config)
+            raise EModelValidationError(
+                self.mapping_details.has_issues(), self._general_config)
+
+# TODO: Cover all failure scenarios in myfirstproject
