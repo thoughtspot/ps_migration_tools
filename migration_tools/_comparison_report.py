@@ -1,5 +1,6 @@
 from rich.console import Console
-from rich.table import Table, Column, Row
+# from rich.table import Table, Column, Row
+from rich.table import Table
 from rich.style import Style
 from rich import box
 from cli._ux import console
@@ -37,15 +38,18 @@ class table_general(Table):
         expand = kwargs.get('expand', True)
         row_styles = kwargs.get('row_styles', self.ZEBRA_ROWS)
         title_style = kwargs.get('title_style', Style(color="blue", bold=True))
-        header_style = kwargs.get('header_style', Style(color="red", bold=True))
-        caption_style = kwargs.get('caption_style', Style(italic=True, overline=True))
+        header_style = kwargs.get(
+            'header_style', Style(color="red", bold=True))
+        caption_style = kwargs.get(
+            'caption_style', Style(italic=True, overline=True))
+        force_justification = kwargs.get('force_justification', [])
 
         headers = kwargs.get('headers', [])
         footers = kwargs.get('footers', [])
         data = kwargs.get('data', [])
 
         for kw in [kw for kw in kwargs if kw in ['show_header', 'show_footer', 'expand', 'row_styles', 'title_style',
-                                                 'header_style', 'box', 'headers', 'footers', 'data', 'msg_if_empty', 'caption_style', 'clarification']]:
+                                                 'header_style', 'box', 'headers', 'footers', 'data', 'msg_if_empty', 'caption_style', 'clarification', 'force_justification']]:
             del kwargs[kw]
 
         super().__init__(
@@ -59,17 +63,22 @@ class table_general(Table):
             box=box.MINIMAL_DOUBLE_HEAD,
             **kwargs)
 
-        justification = ["left"] * len(headers)
-        for row_idx, data_row in enumerate(data):
-            for col_idx, data_col in enumerate(data[row_idx]):
-                if not isinstance(data_col, str):
-                    justification[col_idx] = 'right'
+        if len(force_justification) == 0:
+            justification = ["left"] * len(headers)
+
+            for row_idx, data_row in enumerate(data):
+                for col_idx, data_col in enumerate(data[row_idx]):
+                    if not isinstance(data_col, str):
+                        justification[col_idx] = 'right'
+        else:
+            justification = force_justification
 
         for idx, header in enumerate(headers):
             self.add_column(
                 header=header,
                 footer=str(footers[idx]) if len(footers) > idx else '',
-                justify=justification[idx] if len(justification) > idx else 'left',
+                justify=justification[idx] if len(
+                    justification) > idx else 'left',
                 no_wrap=(
                     idx == 0), overflow="fold"
             )
@@ -79,6 +88,12 @@ class table_general(Table):
 
 
 class table_file_list(table_general):
+
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+
+
+class table_setting_list(table_general):
 
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
@@ -131,7 +146,6 @@ class comparison_report:
         self._report_elements.append(report_element)
 
     def output_to_console(self, use_console):
-        NL = "\n"
         use_console.print(
             Panel(
                 f"Source Database Platform: {self._general_config.get('MIGRATION').get('SOURCE_PLATFORM')}\nTarget Database Platform: {self._general_config.get('MIGRATION').get('TARGET_PLATFORM')}",
@@ -164,4 +178,5 @@ class comparison_report:
             file_console.print("")
             self.output_to_console(file_console)
             file_console.print("")
+
             file_console.rule(f"Report Generated {generation_timestamp}")
