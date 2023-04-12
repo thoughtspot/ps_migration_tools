@@ -647,18 +647,6 @@ class dbschema_model:
         output_message('Considering tables:')
         output_message(','.join(source_column_list))
 
-        output_message(
-            ','.join(
-                self.get_column_list_for_table(
-                    'just-data-warehouse',
-                    'thoughtspot',
-                    'dummy_restaurants')))
-
-        # output_message(self.get_column_list_for_table(tdatabase, tschema, ttable))
-        # ttt = [f"{tdatabase}.{tschema}.{ttable}" for tdatabase in self.model
-        #        for tschema in self.model[tdatabase]['schemas']
-        #        for ttable in self.model[tdatabase]['schemas'][tschema]]
-
         # This goes wrong when there is a (user uploaded) table which does not exist in source and no match can be found
         # for example, the column names are too different or there are more columns in source than on target
         output_message(','.join([f"{tdatabase}.{tschema}.{ttable} ({mapping_details.table_available_for_matching(mapping_category, tdatabase, tschema, ttable)}) " for tdatabase in self.model
