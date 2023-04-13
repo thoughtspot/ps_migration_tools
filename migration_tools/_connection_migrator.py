@@ -2242,3 +2242,4 @@ class connection_migrator:
                 self.mapping_details.has_issues(), self._general_config)
 
 # TODO: Cover all failure scenarios in myfirstproject
+# TODO: Extra groovy parameters --> template

@@ -11,11 +11,13 @@ YAML_COL_CLEAN_UP = ['mapping_status','old_external_column','old_data_type']
 
 [TEMPLATES]
 PROJECT_CONFIG="""
-[MIGRATION]
 # Name of the source platform
 SOURCE_PLATFORM="FALCON"
+SOURCE_DBSCHEMA_DRIVER="ThoughtSpot"
+
 # Name of the target platform
-TARGET_PLATFORM="REDSHIFT"
+TARGET_PLATFORM="SNOWFLAKE"
+TARGET_DBSCHEMA_DRIVER="SnowFlake"
 
 [FILE_LOCATIONS]
 # Folder where the source model files will be placed (*.dbs/*.csv)
