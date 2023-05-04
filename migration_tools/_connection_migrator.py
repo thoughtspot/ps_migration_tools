@@ -1007,7 +1007,12 @@ class connections_yaml:
                           if table['external_table']['table_name'].lower().startswith(
                 db.lower() + "_" + schema.lower())]
 
-            if len(db_schemas) == 1:
+            if len(db_schemas) != 1:
+                # Cannot extract database and schema name from YAML falcon table_name
+                errors.append(''.join(
+                    ("Cannot extract database and schema name from YAML falcon table_name ",
+                     table['external_table']['table_name'].lower())))
+            else:
                 table['external_table']['falcon_db'] = db_schemas[0]['db']
                 table['external_table']['falcon_schema'] = db_schemas[0]['schema']
                 table['external_table']['falcon_table'] = table['external_table']['table_name'][
@@ -1022,34 +1027,29 @@ class connections_yaml:
                 output_message(''.join(
                     (f"Mapped to table: {table['external_table']['db_name']}.",
                      f"{table['external_table']['schema_name']}.{table['external_table']['table_name']}")))
-            else:
-                # Cannot extract database and schema name from YAML falcon table_name
-                errors.append(''.join(
-                    ("Cannot extract database and schema name from YAML falcon table_name ",
-                     table['external_table']['table_name'].lower())))
 
-            # ---------------------------------------------
-            # Step 2 - Fix names for user uploaded tables
-            # ---------------------------------------------
-            if table['external_table']['falcon_db'].lower() == 'falconuserdatadatabase' and \
-                    table['external_table']['falcon_schema'].lower() == 'falconuserdataschema' and \
-                    table['external_table']['falcon_table'].lower()[:9] == 'userdata_':
-                output_message(
-                    "Identified as user uploaded table. Trying to locate in business model.")
-                model_table = self.business_model.locate_by_id(table['id'])
-                # As this is a 100% sure match overwrite table and columns to the mappings by locating this matched
-                # name as the target but with this source db and schema
-                if model_table is not None:
-                    table['external_table']['falcon_table'] = model_table[0]['PhysicalTableName']
-                    for col in model_table:
-                        mcol = [c for c in table['column']
-                                if c['id'] == col['ColumnGUID']]
-                        mcol[0]['external_column'] = col['PhysicalColumnName']
-                else:
-                    # Cannot locate user uploaded table in business model
-                    errors.append(
-                        (f"Cannot locate user uploaded table {table['external_table']['falcon_table'].lower()} ",
-                         f"with id {table['id']} in business model"))
+                # ---------------------------------------------
+                # Step 2 - Fix names for user uploaded tables
+                # ---------------------------------------------
+                if table['external_table']['falcon_db'].lower() == 'falconuserdatadatabase' and \
+                        table['external_table']['falcon_schema'].lower() == 'falconuserdataschema' and \
+                        table['external_table']['falcon_table'].lower()[:9] == 'userdata_':
+                    output_message(
+                        "Identified as user uploaded table. Trying to locate in business model.")
+                    model_table = self.business_model.locate_by_id(table['id'])
+                    # As this is a 100% sure match overwrite table and columns to the mappings by locating this matched
+                    # name as the target but with this source db and schema
+                    if model_table is not None:
+                        table['external_table']['falcon_table'] = model_table[0]['PhysicalTableName']
+                        for col in model_table:
+                            mcol = [c for c in table['column']
+                                    if c['id'] == col['ColumnGUID']]
+                            mcol[0]['external_column'] = col['PhysicalColumnName']
+                    else:
+                        # Cannot locate user uploaded table in business model
+                        errors.append(
+                            (f"Cannot locate user uploaded table {table['external_table']['falcon_table'].lower()} ",
+                             f"with id {table['id']} in business model"))
 
         if len(errors) > 0:
             raise EYAMLPreparationError(errors)
@@ -1524,6 +1524,7 @@ class mapping_details:
 
     def merge_record(self, mapping_record):
         updated = False
+
         # For each mapping check if we need to update or insert it, if the existing mapping is an override
         # the mapping will not be updated
         for m in self.mappings:
@@ -2102,7 +2103,9 @@ class connection_migrator:
                                             dt_val = self.source_model.model[db]['schemas'][s][t][c].compare(
                                                 self.target_model.model[db_match]['schemas'][s_match][t_match][c_match])
 
+                                            col_mapping_status = table_mapping_record.status
                                             for dts in dt_val:
+                                                col_mapping_status = 'UNMAPPED'
                                                 dts.set_table(f"{db}.{s}.{t}")
                                                 dts.msg = f"Column {c}<-->{c_match}: {dts.msg}"
                                                 self.mapping_details.add_notification(
@@ -2115,7 +2118,7 @@ class connection_migrator:
                                                     'schemas'][s_match][t_match][c_match].length,
                                                 tar_datatype_decimal=self.target_model.model[db_match][
                                                     'schemas'][s_match][t_match][c_match].decimal,
-                                                status=table_mapping_record.status)
+                                                status=col_mapping_status)
 
                                         self.mapping_details.merge_record(
                                             column_mapping_record)
