@@ -5,6 +5,7 @@ from ruamel import yaml
 import csv
 import glob
 import os
+import string
 import time
 import re
 from pathlib import Path
@@ -34,16 +35,18 @@ class MigrationUtils:
     @staticmethod
     def fuzzy_strip(column):
         """
-        Returns the column value in lowercase with underscores replaced by spaces and special characters removed
+        Returns the column value in lowercase with parentheses and underscores replaced by spaces and then special spaces and 
+        characters removed
 
         Args:
             column (str): The column value to be stripped
 
         Returns:
-            _type_: The column value in lowercase, underscores, parentheses replaced by spaces and special characters removed
+            _type_: The column value in lowercase, underscores, parentheses replaced by spaces and spaces special characters removed
         """
-        return " ".join((column.casefold().replace('(', ' ').replace(')', ' ').replace(
-            '_', ' ').strip().encode("ascii", errors="ignore").decode()).split())
+        return " ".join((column.casefold().translate(str.maketrans('', '', string.punctuation)).replace(' ', '').strip().encode("ascii", errors="ignore").decode()).split())
+        # return " ".join((column.casefold().replace('(', ' ').replace(')', ' ').replace(
+        #     '_', ' ').replace(' ', '').strip().encode("ascii", errors="ignore").decode()).split())
 
 # ======================================================================================================================
 # Notification Classes
@@ -642,10 +645,10 @@ class dbschema_model:
         result = False
 
         output_message(
-            f'Executing fuzzy match for table {source_db}.{source_schema}.{source_table} with columns {",".join(source_column_list)}')
+            f'Executing fuzzy match for table {source_db}.{source_schema}.{source_table} with columns {",".join([MigrationUtils.fuzzy_strip(c) for c in source_column_list])}')
 
-        output_message('Considering tables:')
-        output_message(','.join(source_column_list))
+        output_message([MigrationUtils.fuzzy_strip(c) for c in self.get_column_list_for_table(
+            'NA_SC_ANALYTICS_PROD', 'NA_SC_ANALYTICS_PROD_WI', 'OTR')])
 
         # This goes wrong when there is a (user uploaded) table which does not exist in source and no match can be found
         # for example, the column names are too different or there are more columns in source than on target
@@ -2243,3 +2246,8 @@ class connection_migrator:
 
 # TODO: Cover all failure scenarios in myfirstproject
 # TODO: Extra groovy parameters --> template
+
+
+# TODO: Summarise data type errors and missing tables in separate files so easy to distribute to customer (maybe separate section in report as well)
+# TODO: Migration pipeline translates certain field names in YAML (so must be in Falcon too?) What is the logic and functionality here? So we can replicate
+# TODO: High similar table with same name -> override file? Yeah good point.... I will probably do something on a particular percentages and if the table name matches and the same number of columns then output it...
