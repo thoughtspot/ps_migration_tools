@@ -197,7 +197,6 @@ def create_cfg(
                 {'data_dir': data_dir}))
 
 
-@ app.command(name="get_permissions")
 def get_permissions(
     ctx: typer.Context,
     cfg_name: str = typer.Option(..., help="Name of config file"),
@@ -209,89 +208,96 @@ def get_permissions(
     ts = HTTPClient(ts_url=source_ts_url)
     r = ts.login(source_username, source_password)
     r.raise_for_status()
-    ps = HTTPClient(ts_url=dest_ts_url)
-    r = ps.login(dest_username, dest_password)
-    r.raise_for_status()
-    liveboards = pd.json_normalize(
-        ts.pinboard_list().json(), record_path='headers')
+    liveboards = pd.json_normalize(ts.pinboard_list().json(), record_path='headers')
     liveboard_list = liveboards['id'].to_list()
     answers = pd.json_normalize(ts.answer_list().json(), record_path='headers')
     answerlist = answers['id'].to_list()
-    teststring = {'PINBOARD_ANSWER_BOOK': liveboard_list,
-                  'QUESTION_ANSWER_BOOK': answerlist}
-    test = ts.defined_permissions_bulk(idsbytype=teststring).json()
-    print(test)
-    """
+    teststring = {'PINBOARD_ANSWER_BOOK': liveboard_list,'QUESTION_ANSWER_BOOK': answerlist}
+    #test = ts.defined_permissions_bulk(idsbytype=teststring).json()
+    
     metadata = {
         
         "PINBOARD_ANSWER_BOOK": ts.pinboard_list,
         "QUESTION_ANSWER_BOOK": ts.answer_list,
-        "LOGICAL_TABLE": ts.table_list,
-        "LOGICAL_TABLE": ts.view_list,
-        "LOGICAL_TABLE": ts.worksheet_list,
+        "LOGICAL_TABLE.": ts.table_list,
+        "LOGICAL_TABLE..": ts.view_list,
+        "LOGICAL_TABLE...": ts.worksheet_list,
     }
     perm_list =[]
     for name, ts_api_method in metadata.items():
         objects = pd.json_normalize(ts_api_method().json(), record_path='headers')
-        for GUID in objects['id']:
-            perms = ts.defined_permissions(object_type = name,object_guids= [GUID]).json()
+        try:
+            no_objects = objects.index.size
+        except:
+            no_objects = 0
+        for GUID in track(objects['id'], description=f'[green]Retrieving defined permissions for {no_objects} {name}S'):
+            object_type = name.replace(".","")
+            perms = ts.defined_permissions(object_type = object_type,object_guids= [GUID]).json()
             sublevel_key = perms[GUID]['permissions']
             #print(sublevel_key)
             topLevelObject = GUID
-            object_type = name
+            
             
             for key in sublevel_key.keys():
                 share_mode = perms[GUID]['permissions'][key]['shareMode']
                 perm_list.append([topLevelObject,key,share_mode,object_type])
             
     permissions = pd.DataFrame(perm_list, columns=["object_guid", "user_guid", "sharing_mode","object_type"])
-    print(permissions)
+    #print(permissions)
+    console.print(tabulate(permissions[["object_guid", "user_guid", "sharing_mode","object_type"]], headers='keys', tablefmt='psql'))
+      
+    
+@ app.command(name="get_orgs")
+def get_orgs(
+    ctx: typer.Context,
+    cfg_name: str = typer.Option(..., help="Name of config file"),
+    org: str = typer.Option(..., help="Name of the org")
+):
     """
+    🔐 Shows all existing orgs on the source cluster
+    """
+    # Load the general configuration (templates etc)
+    get_cfg(cfg_name)
+    ts = HTTPClient(ts_url=source_ts_url)
+    r = ts.login(source_username, source_password)
+    r.raise_for_status()
+    ps = HTTPClient(ts_url=dest_ts_url)
+    r = ps.login(dest_username, dest_password)
+    r.raise_for_status()
+    orgs_json = pd.json_normalize(ts.get_orgs().json(),record_path='orgs')
+    #console.print(orgs_json)
+    console.print(tabulate(orgs_json[['orgId','orgName']], headers='keys', tablefmt='psql'))
+    try:
+        org_guid = orgs_json.loc[orgs_json.orgName == org,'orgId'].values[0]
+        console.print(f"Switching context to {org}",style="success")
+        ts.switch_org(orgid=org_guid)
+    except:
+        console.print(f"Org {org} does not exist on this cluster, please choose another Org",style="error")
+   
 
-    # t = Texttable()
-    # t.add_rows(empty_table_list)
-    # t.set_cols_width([5, 30, 30, 40])
-    # print(t.draw())
-
-
-@ app.command(name="sync_users")
+@ app.command(name="create_users")
 def sync_users(
     ctx: typer.Context,
     cfg_name: str = typer.Option(..., help="Name of config file"),
-    source_ts_url: str = typer.Option(...,
-                                      help="URL of your ThoughtSpot cluster"),
-    source_username: str = typer.Option(...,
-                                        help="username of your source cluster"),
-    source_password: str = typer.Option(...,
-                                        help="password of your source cluster"),
-    dest_ts_url: str = typer.Option(...,
-                                    help="URL of your destination cluster"),
-    dest_username: str = typer.Option(...,
-                                      help="username of your destination cluster"),
-    dest_password: str = typer.Option(...,
-                                      help="password of your destination cluster"),
-    data_dir: pathlib.Path = typer.Option(...,
-                                          help="directory to store output data in"),
+    validate_only: str = typer.Option(..., help="yes/no"),
+    sync_type: str = typer.Option(..., help="Users that you want to sync (all/created"),
 ):
     """
     Creating missing users on the destination cluster
     """
     get_cfg(cfg_name)
     if sync_type == 'all':
-        users = pd.read_csv(
-            data_dir + "/all_objects/falcon_users.csv", delimiter='|')
+        users = pd.read_csv(data_dir + "/all_objects/falcon_users.csv", delimiter='|')
     elif sync_type == 'created':
-        users = pd.read_csv(
-            data_dir + "/created/users_created.csv", delimiter='|')
+        users = pd.read_csv(data_dir + "/created/users_created.csv", delimiter='|')
     else:
         pass
-        console.print(
-            "wrong parameter specified for sync-type! Choose either all or created", style='warning')
-
+        console.print("wrong parameter specified for sync-type! Choose either all or created",style='warning')
     def process_data():
         sleep(2)
 
-    # for _ in track(range(len(users)), description=f'[green]Gathering {sync_type} users'):
+
+    #for _ in track(range(len(users)), description=f'[green]Gathering {sync_type} users'):
      #   process_data()
     ts = HTTPClient(ts_url=source_ts_url)
     r = ts.login(source_username, source_password)
@@ -302,49 +308,43 @@ def sync_users(
     # Get Data
     t = Texttable()
     try:
-        users.rename(columns={"header.name": "name",
-                     "header.displayName": "displayName"}, inplace=True)
+        users.rename(columns={"header.name": "name", "header.displayName": "displayName"}, inplace=True)
     except:
         pass
 
-    empty_table_list = [
-        ['index', 'username', 'display name', 'assigned groups']]
+    empty_table_list =[['index','username','display name','assigned groups']]
     for usr in track(range(len(users)), description=f'[bold green]Synchronising {sync_type} users'):
         username = users['name'].iloc[usr]
-        # print(users['displayName'].iloc[usr])
-        # print(type(users['displayName'].iloc[usr]))
-        # dis_name = users['displayName'].iloc[usr]
-        assigned_groups = pd.json_normalize(
-            ts.users(user_name=username).json())
+        #print(users['displayName'].iloc[usr])
+        #print(type(users['displayName'].iloc[usr]))
+        #dis_name = users['displayName'].iloc[usr]
+        assigned_groups = pd.json_normalize(ts.users(user_name = username).json())
         ass_grp = assigned_groups['assignedGroups'][0]
         dis_name = assigned_groups['displayName'][0]
         if validate_only == 'no':
-            ctu = ps.create_user(
-                UserName=username, DisplayName=dis_name, group_guids=ass_grp)
-            print(str(usr+1) + '. ' + username + ' status: ' + str(ctu))
+            ctu = ps.create_user(UserName= username,DisplayName= dis_name, group_guids= ass_grp )
+            print(str(usr+1) +'. '+ username +' status: '+ str(ctu) )
         else:
-            empty_table_list.append([usr+1, username, dis_name, ass_grp])
-
-            # print(str(usr+1) +'. '+ username + ' ---> displayName: '+ dis_name)
-    t.add_rows(empty_table_list)
-    t.set_cols_width([5, 30, 30, 40])
-    print(t.draw())
-    console.print("created {} new users on {}".format(len(users), dest_ts_url))
-
+            empty_table_list.append([usr+1,username, dis_name,ass_grp])
+            
+            #print(str(usr+1) +'. '+ username + ' ---> displayName: '+ dis_name)
+    t.add_rows(empty_table_list)   
+    t.set_cols_width([5, 30, 30, 40])    
+    print(t.draw())        
+    console.print("created {} new users on {}".format(len(users),dest_ts_url))
 
 @ app.command(name="remove_summary")
 def remove_summary(
     ctx: typer.Context,
     cfg_name: str = typer.Option(..., help="Name of config file"),
     validate_only: str = typer.Option(..., help="yes/no"),
-    object_type: str = typer.Option(...,
-                                    help="valid options: [Answers,Liveboards]"),
+    object_type: str = typer.Option(..., help="valid options: [Answers,Liveboards]"),
 ):
     """
     Removes the headline aggregation from all answers/liveboards
     """
     get_cfg(cfg_name)
-    if validate_only == 'no':
+    if validate_only =='no':
         validate_flag = False
     else:
         validate_flag = True
@@ -352,28 +352,26 @@ def remove_summary(
     ps.requests_session.verify = False
     try:
         ps.session_login(username=dest_username, password=dest_password)
-        console.print("successfully logged in to " +
-                      dest_ts_url, style="success")
+        console.print("successfully logged in to " + dest_ts_url, style="success")
     except requests.exceptions.HTTPError as e:
         console.print(e, style="error")
         print(e.response.content)
+    
+
 
     if object_type == 'Answers':
         # Get Data
-        # t = Texttable()
-        # empty_table_list =[['object name','type','#summaries','status']]
-        # Upload
-        Answers = pd.read_csv(
-            f"{data_dir}/all_objects/Answer.csv", header=[0], delimiter='|')
+        #t = Texttable()
+        #empty_table_list =[['object name','type','#summaries','status']]
+        ### Upload 
+        Answers = pd.read_csv(f"{data_dir}/all_objects/Answer.csv", header=[0], delimiter='|')
         Answers = Answers['id']
-
+        
         for answer in track(Answers, description='[cyan][bold]Removing headline aggregations for {} Answers'.format(len(Answers))):
             GUID = answer
             try:
-                tml = ps.metadata_tml_export(
-                    guid=GUID, export_fqn=True, export_associated=False)
-                Answer.loads(json.dumps(tml)).dump(
-                    f"{data_dir}/tml_export/original/Answer/{GUID}.answer.tml")
+                tml = ps.metadata_tml_export(guid=GUID, export_fqn = True,export_associated= False)
+                Answer.loads(json.dumps(tml)).dump(f"{data_dir}/tml_export/original/Answer/{GUID}.answer.tml")
             except Exception as e:
                 logging.info(str(e))
                 pass
@@ -383,43 +381,35 @@ def remove_summary(
                     tml['answer']['table']['table_columns'][i]['show_headline'] = False
                 except:
                     pass
-            # Answer.loads(json.dumps(tml)).dump("headline.answer.tml")
+            #Answer.loads(json.dumps(tml)).dump("headline.answer.tml")
             try:
-                UploadObject = ps.metadata_tml_import(
-                    tml, create_new_on_server=False, validate_only=validate_flag)
+                UploadObject = ps.metadata_tml_import(tml, create_new_on_server=False, validate_only=validate_flag)
             except Exception as e:
                 logging.info(str(e))
                 pass
-            logging.info(str(GUID)+' --> ' +
-                         str(UploadObject['object'][0]['response']['status']))
-        output_message("Removed {} headline_aggregations from {}".format(
-            len(Answers), dest_ts_url), 'success')
+            logging.info(str(GUID)+' --> '+str(UploadObject['object'][0]['response']['status']))
+        output_message("Removed {} headline_aggregations from {}".format(len(Answers),dest_ts_url),'success')
 
-    elif object_type == 'Liveboards':
-        Liveboards = pd.read_csv(
-            f"{data_dir}/all_objects/Liveboard.csv", header=[0], delimiter='|')
+    elif object_type == 'Liveboards':   
+        Liveboards = pd.read_csv(f"{data_dir}/all_objects/Liveboard.csv", header=[0], delimiter='|')
         Liveboards = Liveboards['id']
-        # Liveboards = ['2f2b97e3-2420-477e-babe-53e4de2ece0c']
+        #Liveboards = ['2f2b97e3-2420-477e-babe-53e4de2ece0c']
         for Liveboard_guid in track(Liveboards, description='[cyan][bold]Removing headline aggregations for {} Liveboards'.format(len(Liveboards))):
             GUID = Liveboard_guid
             try:
-                tml = ps.metadata_tml_export(
-                    guid=GUID, export_fqn=True, export_associated=False)
-                Liveboard.loads(json.dumps(tml)).dump(
-                    f"{data_dir}/tml_export/original/Liveboard/{GUID}.liveboard.tml")
+                tml = ps.metadata_tml_export(guid=GUID, export_fqn = True,export_associated= False)
+                Liveboard.loads(json.dumps(tml)).dump(f"{data_dir}/tml_export/original/Liveboard/{GUID}.liveboard.tml")
             except Exception as e:
                 logging.info(str(e))
                 pass
             try:
                 numberOfViz = len(tml['liveboard']['visualizations'])
             except:
-                logging.info(
-                    "This liveboard seems to be empty and will be skipped")
+                logging.info("This liveboard seems to be empty and will be skipped")
                 numberOfViz = 1
             for i in range(numberOfViz):
                 try:
-                    numberOfTableColumns = len(
-                        tml['liveboard']['visualizations'][i]['answer']['table']['table_columns'])
+                    numberOfTableColumns = len(tml['liveboard']['visualizations'][i]['answer']['table']['table_columns'])
                 except:
                     numberOfTableColumns = 1
                 for n in range(numberOfTableColumns):
@@ -428,17 +418,14 @@ def remove_summary(
                         tml['liveboard']['visualizations'][i]['answer']['table']['table_columns'][n]['show_headline'] = False
                     except BaseException:
                         pass
-            # Answer.loads(json.dumps(tml)).dump("headline.answer.tml")
+            #Answer.loads(json.dumps(tml)).dump("headline.answer.tml")
             try:
-                UploadObject = ps.metadata_tml_import(
-                    tml, create_new_on_server=False, validate_only=validate_flag)
-                logging.info(
-                    str(GUID)+' --> '+str(UploadObject['object'][0]['response']['status']))
+                UploadObject = ps.metadata_tml_import(tml, create_new_on_server=False, validate_only=validate_flag)
+                logging.info(str(GUID)+' --> '+str(UploadObject['object'][0]['response']['status']))
             except Exception as e:
                 pass
                 logging.info(str(e)+' --> '+GUID)
-        output_message("Removed {} headline_aggregations from {}".format(
-            len(Liveboards), dest_ts_url), 'success')
+        output_message("Removed {} headline_aggregations from {}".format(len(Liveboards),dest_ts_url),'success')    
     else:
         pass
         """
@@ -446,9 +433,8 @@ def remove_summary(
         t.add_rows(empty_table_list)   
         t.set_cols_width([5, 30, 30, 40])    
         print(t.draw())    
-        """
-        # output_message("Removed {} headline_aggregations from {}".format(len(Answers),dest_ts_url),'success')
-
+        """    
+        #output_message("Removed {} headline_aggregations from {}".format(len(Answers),dest_ts_url),'success')
 
 @ app.command(name="rollback_tml")
 def rollback_tml(
@@ -462,7 +448,7 @@ def rollback_tml(
     upload original tml objects (see projects/cfg-name/output/delta_migrations/tml_export/original/...)
     """
     get_cfg(cfg_name)
-    if validate_only == 'no':
+    if validate_only =='no':
         validate_flag = False
     else:
         validate_flag = True
@@ -470,37 +456,28 @@ def rollback_tml(
     ps.requests_session.verify = False
     try:
         ps.session_login(username=dest_username, password=dest_password)
-        console.print("successfully logged in to " +
-                      dest_ts_url, style="success")
+        console.print("successfully logged in to " + dest_ts_url, style="success")
     except requests.exceptions.HTTPError as e:
         console.print(e, style="error")
         print(e.response.content)
 
-    console.print(
-        f"Uploading original {object_type} tml files", style="bold blue")
+    console.print(f"Uploading original {object_type} tml files", style="bold blue")
     directory = f"{data_dir}/tml_export/original/{object_type}/"
     for filename in os.listdir(directory):
-        obj = determine_tml_type(
-            path=f"{data_dir}/tml_export/original/{object_type}/{filename}")
-        tml = obj.load(
-            f"{data_dir}/tml_export/original/{object_type}/{filename}")
+        obj = determine_tml_type(path=f"{data_dir}/tml_export/original/{object_type}/{filename}")
+        tml = obj.load(f"{data_dir}/tml_export/original/{object_type}/{filename}")
         tml_name = tml.name
         data = tml.dumps(format_type="JSON")
         try:
-            UploadObject = ps.metadata_tml_import(
-                data, create_new_on_server=False, validate_only=validate_flag)
-            console.print(
-                f"[bold green]successfully[/bold green] recovered [bold cyan]{tml_name}[/bold cyan] from {filename}")
-            logging.info(str(tml_name)+' --> ' +
-                         str(UploadObject['object'][0]['response']['status']))
+            UploadObject = ps.metadata_tml_import(data, create_new_on_server=False, validate_only=validate_flag)
+            console.print(f"[bold green]successfully[/bold green] recovered [bold cyan]{tml_name}[/bold cyan] from {filename}")
+            logging.info(str(tml_name)+' --> '+str(UploadObject['object'][0]['response']['status']))
         except Exception as e:
             pass
-            console.print(
-                f"[bold red]failed[/bold red] to recover [bold cyan]{tml_name}[/bold cyan] from {filename} (see log files)")
+            console.print(f"[bold red]failed[/bold red] to recover [bold cyan]{tml_name}[/bold cyan] from {filename} (see log files)")
             logging.info(str(e)+' --> '+filename)
 
 # local functions
-
 
 def map_users(cfg_name):
     get_cfg(cfg_name)
@@ -508,30 +485,27 @@ def map_users(cfg_name):
     ts = HTTPClient(ts_url=source_ts_url)
     r = ts.login(source_username, source_password)
     r.raise_for_status()
-    falcon_users = pd.json_normalize(
-        ts.metadata_user_list().json(), record_path='headers')
+    falcon_users = pd.json_normalize(ts.metadata_user_list().json(),record_path='headers')
     (
         falcon_users.to_csv(
             data_dir + "/all_objects/" + "falcon_users.csv", **file_args
         )
     )
-    falcon_users = falcon_users[['id', 'name']]
+    falcon_users = falcon_users[['id','name']]
     ps = HTTPClient(ts_url=dest_ts_url)
     r = ps.login(dest_username, dest_password)
     r.raise_for_status()
     file_args = {"sep": "|", "index": False, "encoding": "UTF-8"}
-    cloud_users = pd.json_normalize(
-        ps.metadata_user_list().json(), record_path='headers')
+    cloud_users = pd.json_normalize(ps.metadata_user_list().json(),record_path='headers')
     (
         cloud_users.to_csv(
             data_dir + "/all_objects/" + "cloud_users.csv", **file_args
         )
     )
-    cloud_users = cloud_users[['id', 'name']]
+    cloud_users = cloud_users[['id','name']]
     user_ids = pd.merge(falcon_users, cloud_users, on="name")
     user_ids.to_csv(data_dir + "/" + "user_id_mapping.csv", **file_args)
     return user_ids
-
 
 def map_groups(cfg_name):
     get_cfg(cfg_name)
@@ -539,30 +513,27 @@ def map_groups(cfg_name):
     ts = HTTPClient(ts_url=source_ts_url)
     r = ts.login(source_username, source_password)
     r.raise_for_status()
-    falcon_groups = pd.json_normalize(
-        ts.metadata_group_list().json(), record_path='headers')
+    falcon_groups = pd.json_normalize(ts.metadata_group_list().json(),record_path='headers')
     (
         falcon_groups.to_csv(
             data_dir + "/all_objects/" + "falcon_groups.csv", **file_args
         )
     )
-    falcon_groups = falcon_groups[['id', 'name']]
+    falcon_groups = falcon_groups[['id','name']]
     ps = HTTPClient(ts_url=dest_ts_url)
     r = ps.login(dest_username, dest_password)
     r.raise_for_status()
     file_args = {"sep": "|", "index": False, "encoding": "UTF-8"}
-    cloud_groups = pd.json_normalize(
-        ps.metadata_group_list().json(), record_path='headers')
+    cloud_groups = pd.json_normalize(ps.metadata_group_list().json(),record_path='headers')
     (
         cloud_groups.to_csv(
             data_dir + "/all_objects/" + "cloud_groups.csv", **file_args
         )
     )
-    cloud_groups = cloud_groups[['id', 'name']]
+    cloud_groups = cloud_groups[['id','name']]
     group_ids = pd.merge(falcon_groups, cloud_groups, on="name")
     group_ids.to_csv(data_dir + "/" + "group_id_mapping.csv", **file_args)
     return group_ids
-
 
 def map_users_7(cfg_name):
     get_cfg(cfg_name)
@@ -571,15 +542,14 @@ def map_users_7(cfg_name):
     r = ts.login(source_username, source_password)
     r.raise_for_status()
     falcon_users = pd.json_normalize(ts.users_7().json())
-
+    
     (
         falcon_users.to_csv(
             data_dir + "/all_objects/" + "falcon_users.csv", **file_args
         )
     )
-    falcon_users = falcon_users[['header.id', 'header.name']]
-    falcon_users.rename(
-        columns={"header.id": "id", "header.name": "name"}, inplace=True)
+    falcon_users = falcon_users[['header.id','header.name']]
+    falcon_users.rename(columns={"header.id": "id", "header.name": "name"}, inplace=True)
     ps = HTTPClient(ts_url=dest_ts_url)
     r = ps.login(dest_username, dest_password)
     r.raise_for_status()
@@ -590,13 +560,11 @@ def map_users_7(cfg_name):
             data_dir + "/all_objects/" + "cloud_users.csv", **file_args
         )
     )
-    cloud_users = cloud_users[['header.id', 'header.name']]
-    cloud_users.rename(
-        columns={"header.id": "id", "header.name": "name"}, inplace=True)
+    cloud_users = cloud_users[['header.id','header.name']]
+    cloud_users.rename(columns={"header.id": "id", "header.name": "name"}, inplace=True)
     user_ids = pd.merge(falcon_users, cloud_users, on="name")
     user_ids.to_csv(data_dir + "/" + "user_id_mapping.csv", **file_args)
     return user_ids
-
 
 def map_groups_7(cfg_name):
     get_cfg(cfg_name)
@@ -610,9 +578,8 @@ def map_groups_7(cfg_name):
             data_dir + "/all_objects/" + "falcon_groups.csv", **file_args
         )
     )
-    falcon_groups = falcon_groups[['header.id', 'header.name']]
-    falcon_groups.rename(
-        columns={"header.id": "id", "header.name": "name"}, inplace=True)
+    falcon_groups = falcon_groups[['header.id','header.name']]
+    falcon_groups.rename(columns={"header.id": "id", "header.name": "name"}, inplace=True)
     ps = HTTPClient(ts_url=dest_ts_url)
     r = ps.login(dest_username, dest_password)
     r.raise_for_status()
@@ -623,13 +590,11 @@ def map_groups_7(cfg_name):
             data_dir + "/all_objects/" + "cloud_groups.csv", **file_args
         )
     )
-    cloud_groups = cloud_groups[['header.id', 'header.name']]
-    cloud_groups.rename(
-        columns={"header.id": "id", "header.name": "name"}, inplace=True)
+    cloud_groups = cloud_groups[['header.id','header.name']]
+    cloud_groups.rename(columns={"header.id": "id", "header.name": "name"}, inplace=True)
     group_ids = pd.merge(falcon_groups, cloud_groups, on="name")
     group_ids.to_csv(data_dir + "/" + "group_id_mapping.csv", **file_args)
     return group_ids
-
 
 def get_cfg(cfg_name):
     # Load the general configuration (templates etc)
@@ -641,8 +606,7 @@ def get_cfg(cfg_name):
 
     with open('{}.toml'.format(project_config_file), 'r') as file_handler:
         config_data = toml.load(file_handler)
-        output_message("Successfully included {}.toml".format(
-            project_config_file), "success")
+        #output_message("Successfully included {}.toml".format(project_config_file), "success")
         global source_ts_url
         global source_username
         global source_password
@@ -741,26 +705,44 @@ def migrate_yaml(
 def gather_deltas(
     ctx: typer.Context,
     cfg_name: str = typer.Option(..., help="Name of config file"),
-    # source_ts_url: str = typer.Option(..., help="URL of your ThoughtSpot cluster"),
-    # source_username: str = typer.Option(..., help="username of your source cluster"),
-    # source_password: str = typer.Option(..., help="password of your source cluster"),
-    # data_dir: pathlib.Path = typer.Option(..., help="directory to store output data in"),
-    backup_date: dt.datetime = typer.Option(
-        "2012-11-01", help="date of the backup taken"),
+    backup_date: dt.datetime = typer.Option("2012-11-01", help="date of the backup taken"),
+    org: str = O_('None', help='(optional) specify the org you want to switch to '),
 ):
     """ 
     Gathers the delta between source and destination cluster based on the specified date
     """
+    
+
+
     file_args = {"sep": "|", "index": False, "encoding": "UTF-8"}
     get_cfg(cfg_name)
-    output_message("Successfully included {}.toml".format(cfg_name), "success")
-
-    # print(user_id_mapping.head())
+    #output_message("Successfully included {}.toml".format(cfg_name), "success")
+    
+    #print(user_id_mapping.head())
     # ensure_directories(data_dir)
-    log.info(f"Calculating deltas since {backup_date.date()}")
+    log.info(f"📆 Calculating deltas since {backup_date.date()}")
+    console.print(f"📆 Calculating deltas since [bold cyan]{backup_date.date()}")
     ts = HTTPClient(ts_url=source_ts_url)
     r = ts.login(source_username, source_password)
     r.raise_for_status()
+
+
+    #ORGS
+    if org != 'None':
+        
+        #console.print(orgs_json)
+        try:
+            orgs_json = pd.json_normalize(ts.get_orgs().json(),record_path='orgs')
+            console.print(tabulate(orgs_json[['orgId','orgName']], headers='keys', tablefmt='psql'))
+            org_guid = orgs_json.loc[orgs_json.orgName == org,'orgId'].values[0]
+            console.print(f"✅ Switching context to {org}",style="success")
+            ts.switch_org(orgid=org_guid)
+        except:
+            console.print(f"⛔️ Org {org} does not exist on this cluster, please choose another Org",style="error")
+    else:
+        pass
+
+    # End Orgs
 
     # contextualize backup_date to the cluster's timezone
     r = ts.session_info()
@@ -772,19 +754,30 @@ def gather_deltas(
 
     file_args = {"sep": "|", "index": False, "encoding": "UTF-8"}
     column_dir_mapping = {"created": "created", "modified": "modified"}
-
+    
     user_id_mapping = map_users(cfg_name)
     group_id_mapping = map_groups(cfg_name)
-    user_id_mapping.rename(columns={
-                           'id_x': 'id_user_old', 'name': 'user_name', 'id_y': 'id_user_new'}, inplace=True)
-    group_id_mapping.rename(columns={
-                            'id_x': 'id_group_old', 'name': 'group_name', 'id_y': 'id_group_new'}, inplace=True)
+    user_id_mapping.rename(columns = {'id_x':'id_user_old','name':'user_name', 'id_y':'id_user_new'}, inplace = True)
+    group_id_mapping.rename(columns = {'id_x':'id_group_old','name':'group_name', 'id_y':'id_group_new'}, inplace = True)
     user_id_mapping.to_csv(data_dir + "/"   "user_id_mapping.csv", **file_args)
-    group_id_mapping.to_csv(data_dir + "/group_id_mapping.csv", **file_args)
-
+    group_id_mapping.to_csv(data_dir   + "/group_id_mapping.csv", **file_args)
+    
     # Get Userlist
-    df = pd.json_normalize(
-        ts.metadata_user_list().json(), record_path='headers')
+    df = pd.json_normalize(ts.metadata_user_list().json(),record_path='headers')
+
+    (df.pipe(comment, msg="Total number of Users: {df.index.size:,}").to_csv(
+        data_dir + "/" + "users_all.csv", **file_args))
+    console.print("------> " +f"👨‍💻  Users & Groups:",style="cyan bold")
+    for column, sub_dir in column_dir_mapping.items():
+        (
+            df.query(f"{column} > @timestamp")
+            .pipe(comment, msg="  --> {column: >8}: {df.index.size:,}", column=column)
+            .to_csv(data_dir + "/" + sub_dir + "/" + f"users_{column}.csv", **file_args)
+        )
+        new_users = df.query(f"{column} > @timestamp")
+        console.print(f"Number of {column} Users" +":[bold cyan] "+ str(len(new_users)))
+    # Get Grouplist
+    df = pd.json_normalize(ts.metadata_group_list().json(),record_path='headers')
 
     (df.pipe(comment, msg="Total number of Users: {df.index.size:,}").to_csv(
         data_dir + "/" + "users_all.csv", **file_args))
@@ -793,38 +786,23 @@ def gather_deltas(
         (
             df.query(f"{column} > @timestamp")
             .pipe(comment, msg="  --> {column: >8}: {df.index.size:,}", column=column)
-            .to_csv(data_dir + "/" + sub_dir + "/" + f"users_{column}.csv", **file_args)
-        )
-    # Get Grouplist
-    df = pd.json_normalize(
-        ts.metadata_group_list().json(), record_path='headers')
-
-    df = pd.json_normalize(ts.groups().json())
-    df = df.rename(columns={"header.created": "created",
-                   "header.modified": "modified"})
-    column_dir_mapping = {"created": "created", "modified": "modified"}
-
-    for column, sub_dir in column_dir_mapping.items():
-        (
-            df.query(f"{column} > @timestamp")
-            .pipe(comment, msg="  --> {column: >8}: {df.index.size:,}", column=column)
             .to_csv(data_dir + "/" + sub_dir + "/" + f"groups_{column}.csv", **file_args)
         )
+        new_groups = df.query(f"{column} > @timestamp")
+        console.print(f"Number of {column} Groups" +":[bold cyan] "+ str(len(new_groups)))
     # create mapping table to map User.id (guid) and User.name (username)
-    user_df = pd.json_normalize(
-        ts.metadata_user_list().json(), record_path="headers")
-    user_df = user_df[['id', 'name']]
+    user_df = pd.json_normalize(ts.metadata_user_list().json(),record_path="headers")
+    user_df = user_df[['id','name']]
     (
         user_df.rename(columns={"id": "user_id", "name": "user_name"})
         .to_csv(data_dir + "/" + "mapping_users.csv", **file_args)
     )
-
-    user_df.rename(
-        columns={"id": "user_id", "name": "user_name"}, inplace=True)
+    
+    user_df.rename(columns={"id": "user_id", "name": "user_name"}, inplace=True)
     # get high level information about metadata objects
     metadata = {
-        # "Users": ts.metadata_user_list,
-        # "Groups": ts.metadata_group_list,
+        #"Users": ts.metadata_user_list,
+        #"Groups": ts.metadata_group_list,
         "Tag": ts.tag_list,
         "Liveboard": ts.pinboard_list,
         "Answer": ts.answer_list,
@@ -839,49 +817,40 @@ def gather_deltas(
             .pipe(comment, msg="Total number of {name}s: {df.index.size:,}", name=name)
             .merge(user_df, how="left", left_on="author", right_on="user_id")
             .rename(columns={"header.id": "id", "header.name": "name"})
-            .to_csv(data_dir + "/" + "/all_objects/" + f"{name}.csv", **file_args)
+            .to_csv(data_dir + "/"  + "/all_objects/" + f"{name}.csv", **file_args)
         )
-    for subtype in ['created', 'modified']:
-        console.print("------> " + f"{subtype}" +
-                      " objects:", style="cyan bold")
+    for subtype in ['created','modified']:
+        console.print("------> " +f"🛠  {subtype}"+ " objects:",style="cyan bold")
         for name, ts_api_method in metadata.items():
+            df = (pd.json_normalize(ts_api_method().json(), record_path='headers'))
             if subtype == 'modified':
                 query_string = 'modified > @timestamp & created < @timestamp'
             else:
                 query_string = 'modified > @timestamp'
-
-            df = (pd.json_normalize(ts_api_method().json(), record_path='headers'))
             df = df.query(f"{query_string}")
-            console.print(f"Number of {subtype} "+name + "s: " + str(len(df)))
-            ###
-            
-            # console.print(query_string)
-            ###
+            console.print(f"Number of {subtype} "+name+ "s: "+ str(len(df)))
             (
-                # df.query(f"{subtype} > @timestamp")
-                df.query(f"{query_string}")
-                .pipe(comment, msg="Total number of {name}s: {df.index.size:,}", name=name)
-                .merge(user_df, how="left", left_on="author", right_on="user_id")
-                .rename(columns={"header.id": "id", "header.name": "name"})
-                .to_csv(data_dir + "/" + f"/{subtype}/" + f"{name}_{subtype}.csv", **file_args)
+            df.query(f"{query_string}")
+            .pipe(comment, msg="Total number of {name}s: {df.index.size:,}", name=name)
+            .merge(user_df, how="left", left_on="author", right_on="user_id")
+            .rename(columns={"header.id": "id", "header.name": "name"})
+            .to_csv(data_dir + "/"  + f"/{subtype}/" + f"{name}_{subtype}.csv", **file_args)
             )
-
 
 @ app.command(name="deltas7")
 def gather_deltas7(
     ctx: typer.Context,
     cfg_name: str = typer.Option(..., help="Name of config file"),
-    backup_date: dt.datetime = typer.Option(
-        "2012-11-01", help="date of the backup taken"),
+    backup_date: dt.datetime = typer.Option("2012-11-01", help="date of the backup taken"),
 ):
     """ 
-    Gathers the delta between source and destination cluster based on the specified date version 7.1.1
+     🔐 Gathers the delta between source and destination cluster based on the specified date version 7.1.1
     """
     file_args = {"sep": "|", "index": False, "encoding": "UTF-8"}
     get_cfg(cfg_name)
-    output_message("Successfully included {}.toml".format(cfg_name), "success")
-
-    # print(user_id_mapping.head())
+    #output_message("Successfully included {}.toml".format(cfg_name), "success")
+    
+    #print(user_id_mapping.head())
     # ensure_directories(data_dir)
     log.info(f"Calculating deltas since {backup_date.date()}")
     ts = HTTPClient(ts_url=source_ts_url)
@@ -893,31 +862,28 @@ def gather_deltas7(
         r = ts.session_info()
         tz_name = r.json()["timezone"]
     except:
-        tz_name = "UTC"
+        tz_name ="UTC"
         pass
-
+    
     backup_date = backup_date.replace(tzinfo=pytz.timezone(tz_name))
 
     # .created, .modified are represented as timestamps in milleseconds
     timestamp = backup_date.timestamp() * 1000
 
     file_args = {"sep": "|", "index": False, "encoding": "UTF-8"}
-
+    
     column_dir_mapping = {"created": "created", "modified": "modified"}
-
+    
     user_id_mapping = map_users_7(cfg_name)
     group_id_mapping = map_groups_7(cfg_name)
-    user_id_mapping.rename(columns={
-                           'id_x': 'id_user_old', 'name': 'user_name', 'id_y': 'id_user_new'}, inplace=True)
-    group_id_mapping.rename(columns={
-                            'id_x': 'id_group_old', 'name': 'group_name', 'id_y': 'id_group_new'}, inplace=True)
+    user_id_mapping.rename(columns = {'id_x':'id_user_old','name':'user_name', 'id_y':'id_user_new'}, inplace = True)
+    group_id_mapping.rename(columns = {'id_x':'id_group_old','name':'group_name', 'id_y':'id_group_new'}, inplace = True)
     user_id_mapping.to_csv(data_dir + "/"   "user_id_mapping.csv", **file_args)
-    group_id_mapping.to_csv(data_dir + "/group_id_mapping.csv", **file_args)
-
+    group_id_mapping.to_csv(data_dir   + "/group_id_mapping.csv", **file_args)
+    
     # Get Userlist
     df = pd.json_normalize(ts.users_7().json())
-    df.rename(columns={"header.created": "created",
-              "header.modified": "modified"}, inplace=True)
+    df.rename(columns={"header.created": "created", "header.modified": "modified"}, inplace=True)
     (df.pipe(comment, msg="Total number of Users: {df.index.size:,}").to_csv(
         data_dir + "/" + "users_all.csv", **file_args))
 
@@ -929,8 +895,7 @@ def gather_deltas7(
         )
     # Get Grouplist
     df = pd.json_normalize(ts.groups_7().json())
-    df.rename(columns={"header.created": "created",
-              "header.modified": "modified"}, inplace=True)
+    df.rename(columns={"header.created": "created", "header.modified": "modified"}, inplace=True)
     (df.pipe(comment, msg="Total number of Groups: {df.index.size:,}").to_csv(
         data_dir + "/" + "users_all.csv", **file_args))
 
@@ -942,19 +907,17 @@ def gather_deltas7(
         )
     # create mapping table to map User.id (guid) and User.name (username)
     user_df = pd.json_normalize(ts.users_7().json())
-    user_df = user_df[['header.id', 'header.name']]
+    user_df = user_df[['header.id','header.name']]
     (
-        user_df.rename(columns={"header.id": "user_id",
-                       "header.name": "user_name"})
+        user_df.rename(columns={"header.id": "user_id", "header.name": "user_name"})
         .to_csv(data_dir + "/" + "mapping_users.csv", **file_args)
     )
-
-    user_df.rename(columns={"header.id": "user_id",
-                   "header.name": "authorName"}, inplace=True)
+    
+    user_df.rename(columns={"header.id": "user_id", "header.name": "authorName"}, inplace=True)
     # get high level information about metadata objects
     metadata = {
-        # "Users": ts.metadata_user_list,
-        # "Groups": ts.metadata_group_list,
+        #"Users": ts.metadata_user_list,
+        #"Groups": ts.metadata_group_list,
         "Liveboard": ts.pinboard_list_7,
         "Answer": ts.answer_list_7,
         "System Table": ts.table_list_7,
@@ -966,43 +929,38 @@ def gather_deltas7(
         df = (
             pd.json_normalize(ts_api_method().json())
             .pipe(comment, msg="Total number of {name}s: {df.index.size:,}", name=name)
-            # .merge(user_df, how="left", left_on="author", right_on="user_id")
-            # .rename(columns={"header.id": "id", "header.name": "name"})
-            .to_csv(data_dir + "/" + "/all_objects/" + f"{name}.csv", **file_args)
+            #.merge(user_df, how="left", left_on="author", right_on="user_id")
+            #.rename(columns={"header.id": "id", "header.name": "name"})
+            .to_csv(data_dir + "/"  + "/all_objects/" + f"{name}.csv", **file_args)
         )
-    for subtype in ['created', 'modified']:
-        console.print("------> " + f"{subtype}" +
-                      " objects:", style="cyan bold")
+    for subtype in ['created','modified']:
+        console.print("------> " +f"{subtype}"+ " objects:",style="cyan bold")
         for name, ts_api_method in metadata.items():
             df = pd.json_normalize(ts_api_method().json())
             df = df.query(f"{subtype} > @timestamp")
-            console.print(f"Number of {subtype} "+name + "s: " + str(len(df)))
+            console.print(f"Number of {subtype} "+name+ "s: "+ str(len(df)))
             (
-                df.query(f"{subtype} > @timestamp")
-                .pipe(comment, msg="Total number of {name}s: {df.index.size:,}", name=name)
-                .merge(user_df, how="left", left_on="author", right_on="user_id")
-                # .rename(columns={"header.id": "id", "header.name": "name"})
-                .to_csv(data_dir + "/" + f"/{subtype}/" + f"{name}_{subtype}.csv", **file_args)
+            df.query(f"{subtype} > @timestamp")
+            .pipe(comment, msg="Total number of {name}s: {df.index.size:,}", name=name)
+            .merge(user_df, how="left", left_on="author", right_on="user_id")
+            #.rename(columns={"header.id": "id", "header.name": "name"})
+            .to_csv(data_dir + "/"  + f"/{subtype}/" + f"{name}_{subtype}.csv", **file_args)
             )
-
+        
 
 @app.command(name="create_groups")
 def create_groups(
     ctx: typer.Context,
     cfg_name: str = typer.Option(..., help="Name of config file"),
-    # dest_ts_url: str = typer.Option(..., help="URL of your ThoughtSpot (Cloud) cluster"),
-    # dest_username: str = typer.Option(..., help="username of your destination cluster"),
-    # dest_password: str = typer.Option(..., help="password of your destination cluster"),
-    # data_dir: pathlib.Path = typer.Option(..., help="directory to read input data from"),
 ):
     """ 
     Creates missing groups on the destination cluster
     """
     table = Table(show_header=True, header_style='bold #2070b2',
-                  title='[bold]Migrated Groups', expand=True, show_lines=True, row_styles=['#F0F0F8'])
-    table.add_column('Display Name', justify='left', width=60)
-    table.add_column('Technical Name', justify='left', width=80)
-    table.add_column('Status', justify='center', width=30)
+                title='[bold]Migrated Groups',expand= True,show_lines=True, row_styles=['#F0F0F8'] )
+    table.add_column('Display Name', justify='left',width=60)
+    table.add_column('Technical Name', justify='left',width=80)
+    table.add_column('Status', justify='center',width=30)
     get_cfg(cfg_name)
     ts = HTTPClient(ts_url=dest_ts_url)
     r = ts.login(dest_username, dest_password)
@@ -1010,21 +968,45 @@ def create_groups(
     group_dir = "created"
     filename = "groups_created.csv"
     file_args = {"sep": "|", "encoding": "UTF-8"}
-    group_df = pd.read_csv(data_dir + "/" + group_dir +
-                           "/" + filename, **file_args)
-    group_df = group_df.rename(
-        columns={
-            "header.displayName": "group_displayName",
-            "header.name": "group_name",
-            "header.description": "group_description"})
-    for i in range(len(group_df)):
+    group_df = pd.read_csv(data_dir + "/" + group_dir + "/" + filename, **file_args)
+    try:
+        group_df = group_df.rename(
+            columns={
+                "displayName": "group_displayName",
+                "name": "group_name",
+                "description": "group_description"})
+    except:
+        group_df = group_df.rename(
+            columns={
+                "header.displayName": "group_displayName",
+                "header.name": "group_name",
+                "header.description": "group_description"})
+    with Progress() as progress:
+
+        task1 = progress.add_task("[cyan bold]Loading Groups...", total=100)
+        task2 = progress.add_task("[cyan bold]Identifying Delta...", total=100)
+        task3 = progress.add_task("[cyan bold]Starting Migration...", total=100)
+
+        while not progress.finished:
+            progress.update(task1, advance=0.9)
+            progress.update(task2, advance=0.6)
+            progress.update(task3, advance=0.3)
+            time.sleep(0.02)
+    for i in track(range(len(group_df)), description=f'[green bold] Creating new groups...'):
         try:
             Name = group_df["group_name"].iloc[i]
             Display = group_df["group_displayName"].iloc[i]
             Description = group_df["group_description"].iloc[i]
-            ts.create_group(TechName=Name, DisplayName=Display,
-                            DESC=Description)
-            print("successfully validated group: {}".format(Name))
+            appz = ts.create_group(UserName=Name, DisplayName=Display, DESC=Description)
+            sleep(0.5)
+            if(str(appz)) == '<Response [200 ]>':
+                rsp = 'green'
+                result = '✅'
+            else:
+                rsp = 'red'
+                result = '❌'
+            #console.print(f"[bold][{rsp}]successfully[/bold][/{rsp}] created group: {Name} --->  "+ str(appz))
+            table.add_row(  Display,  Name, result)
         except Exception as e:
             print(str(e) + Name)
             pass
@@ -1036,28 +1018,30 @@ def migrate_answers(
     ctx: typer.Context,
     cfg_name: str = typer.Option(..., help="Name of config file"),
     disable_ssl=False,
-    # source_ts_url: str = typer.Option(..., help="URL of your ThoughtSpot cluster"),
-    # source_username: str = typer.Option(..., help="username of your source cluster"),
-    # source_password: str = typer.Option(..., help="password of your source cluster"),
-    # dest_ts_url: str = typer.Option(..., help="URL of your ThoughtSpot (Cloud) cluster"),
-    # dest_username: str = typer.Option(..., help="username of your destination cluster"),
-    # dest_password: str = typer.Option(..., help="password of your destination cluster"),
-    migration_mode: str = typer.Option(...,
-                                       help="specify if you want to migrate modified or created objects values: created/modified"),
-    validation_mode: str = typer.Option(...,
-                                        help="run in validation mode only True/False"),
-    # data_dir: pathlib.Path = typer.Option(..., help="directory to read input data from"),
-):
+    migration_mode: str = typer.Option(...,help="specify if you want to migrate modified or created objects values: created/modified"),
+    validation_mode: str = typer.Option(..., help="run in validation mode only True/False"),
+    from_org: str = O_('None', help='(optional) specify the source org '),
+    to_org: str = O_('None', help='(optional) specify the target org '),
+    tag_name: str = O_('migration_tools', help='(optional) specify a tagname for new objects (default: migration_tools)'),
+    #data_dir: pathlib.Path = typer.Option(..., help="directory to read input data from"),
+):  
+    """
+    Migrates all created/modified answers from source to destination cluster
+    """
+    table = Table(show_header=True, header_style='bold #2070b2',
+                title='[bold]Migrated Answers',expand= True,show_lines=True, row_styles=['#F0F0F8'] )
+    table.add_column('assigned GUID', justify='left',width=60)
+    table.add_column('Name', justify='left',width=80)
+    table.add_column('Status', justify='center',width=30)
+    
     get_cfg(cfg_name)
-    print("Starting Migration of {} answers in validation mode: {}".format(
-        migration_mode, validation_mode))
+    print("Starting Migration of {} answers in validation mode: {}".format(migration_mode, validation_mode))
+    """
     ts: TSRestApiV1 = TSRestApiV1(server_url=source_ts_url)
     ts.requests_session.verify = False
-
     try:
         ts.session_login(username=source_username, password=source_password)
-        console.print("successfully logged in to " +
-                      source_ts_url, style="info")
+        console.print("successfully logged in to " + source_ts_url, style="success")
     except requests.exceptions.HTTPError as e:
         console.print(e, style="error")
         print(e.response.content)
@@ -1066,17 +1050,62 @@ def migrate_answers(
     ps.requests_session.verify = False
     try:
         ps.session_login(username=dest_username, password=dest_password)
-        console.print("successfully logged in to " +
-                      dest_ts_url, style="success")
+        console.print("successfully logged in to " + dest_ts_url, style="success")
     except requests.exceptions.HTTPError as e:
         console.print(e, style="error")
         print(e.response.content)
+    """
+    ts = HTTPClient(ts_url=source_ts_url)
+    r = ts.login(source_username, source_password)
+    r.raise_for_status()
+
+    ps = HTTPClient(ts_url=dest_ts_url)
+    r = ps.login(dest_username, dest_password)
+    r.raise_for_status()
+
+    #ORGS
+    if from_org != 'None':
+        
+        #console.print(orgs_json)
+        try:
+            #print("TEST")
+            #print(ts.get_orgs().json())
+            orgs_json = pd.json_normalize(ts.get_orgs().json(),record_path='orgs')
+            #print(orgs_json)
+            console.print(tabulate(orgs_json[['orgId','orgName']], headers='keys', tablefmt='psql'))
+            org_guid = orgs_json.loc[orgs_json.orgName == from_org,'orgId'].values[0]
+            console.print(f"✅ Switching source context to {from_org}",style="success")
+            ts.switch_org(orgid=org_guid)
+        except Exception as e:
+            print(str(e))
+            console.print(f"⛔️ Org {from_org} does not exist on this cluster, please choose another Org",style="error")
+    else:
+        pass
+    
+    if to_org != 'None':
+        
+        #console.print(orgs_json)
+        try:
+            orgs_json = pd.json_normalize(ps.get_orgs().json(),record_path='orgs')
+            #print(orgs_json)
+            #console.print(tabulate(orgs_json[['orgId','orgName']], headers='keys', tablefmt='psql'))
+            org_guid = orgs_json.loc[orgs_json.orgName == to_org,'orgId'].values[0]
+            console.print(f"✅ Switching target context to {to_org}",style="success")
+            ps.switch_org(orgid=org_guid)
+        except:
+            console.print(f"⛔️ Org {to_org} does not exist on this cluster, please choose another Org",style="error")
+    else:
+        pass
+
+    # End Orgs
 
     if validation_mode == 'False':
         Validate = False
-        mode_type = 'Migration'
+        _import_policy ='ALL_OR_NONE'
+        mode_type= 'Migration'
     else:
         Validate = True
+        _import_policy ='VALIDATE_ONLY'
         mode_type = 'Validation'
     if migration_mode == 'created':
         create_new = True
@@ -1094,8 +1123,14 @@ def migrate_answers(
         header=[0],
         delimiter='|')
     AnswerList = NewAnswersDf['id'].to_list()
-    # AnswerList = AnswerList[:2]
-    print("Start:")
+    
+    ## Defined Parameters:
+    extract = 'N'
+    upload = 'N'
+
+
+    ## End of Definition
+
     NewObjectsList = []
     OwnerList = []
     FailedToLoad = []
@@ -1104,15 +1139,17 @@ def migrate_answers(
     for GUID in track(AnswerList, description=f'[green]{mode_type} of {len(AnswerList)} {migration_mode} Answers'):
         object_guid = GUID
         try:
-            object_name = NewAnswersDf.loc[NewAnswersDf['id'] == GUID, 'name'].item(
-            )
+            object_name = NewAnswersDf.loc[NewAnswersDf['id'] == GUID, 'name'].item()
             object_type = 'QUESTION_ANSWER_BOOK'
-            print(object_name)
-            owner_name = NewAnswersDf.loc[NewAnswersDf['id']
-                                          == GUID, 'authorName'].item()
-            tml = ts.metadata_tml_export(guid=GUID)
-            console.print(
-                "Export for " + '{}.answer.tml'.format(object_name) + " successfull", style="info")
+            #print(object_name)
+            owner_name = NewAnswersDf.loc[NewAnswersDf['id'] == GUID, 'authorName'].item()
+            #tml = ts.metadata_tml_export(guid=GUID)
+            tml = ts.metadata_tml_export(guid=[GUID])
+            tml = tml.json()
+            tml = tml['object'][0]['edoc']
+            tml = json.loads(tml)
+            #console.log("Export for " + '{}.answer.tml'.format(object_name) + " successfull", style="info")
+            logging.info("Export for " + '{}.answer.tml'.format(object_name) + " successfull")
             for i in range(0, 10):
                 try:
                     if tml['answer']['table']['table_columns'][i]['headline_aggregation'] == 'TABLE_AGGR':
@@ -1121,98 +1158,90 @@ def migrate_answers(
                         pass
                 except BaseException:
                     pass
-            UploadObject = ps.metadata_tml_import(
-                tml, create_new_on_server=create_new, validate_only=Validate)
-            print("Status:")
-            console.print(UploadObject['object'][0]
-                          ['response']['status'], style="info")
-            print("New GUID assigned:")
-            print(UploadObject['object'][0]['response']['header']['id_guid'])
-            NewObjectsList.append(
-                UploadObject['object'][0]['response']['header']['id_guid'])
+            Answer.loads(json.dumps(tml)).dump(f"{data_dir}/tml_export/answers/{migration_mode}/{object_guid}.answer.tml")
+            #UploadObject = ps.metadata_tml_import(tml, create_new_on_server=create_new, validate_only=Validate)
+            UploadObject = ps.metadata_tml_import(tml=[tml], import_policy= _import_policy, force_create= create_new)
+            UploadObject = UploadObject.json()
+            #print("Status:")
+            logging.info(UploadObject['object'][0]['response']['status'])
+            #print("New GUID assigned:")
+            #print(UploadObject['object'][0]['response']['header']['id_guid'])
+            NewObjectsList.append(UploadObject['object'][0]['response']['header']['id_guid'])
             Owner = UploadObject['object'][0]['response']['header']['owner_guid']
             OwnerList.append(Owner)
             new_guid = UploadObject['object'][0]['response']['header']['id_guid']
-            map_guid.append(
-                [object_guid, new_guid, owner_name, object_name, object_type])
+            map_guid.append([object_guid, new_guid, owner_name, object_name, object_type])
+            #tag_name = 'migration_tools'
+
+            
+
+            
+
             if Validate == True:
-                console.print(
-                    "Validation for " + '{}.answer.tml'.format(object_name) + " successfull", style="info")
+                logging.info("Validation for " + '{}.answer.tml'.format(object_name) + " successfull")
+                table.add_row( new_guid,  object_name, '✅')
+                pass
             else:
-                console.print(
-                    "Imported " + '{}.answer.tml'.format(object_name) + " successfully", style="info")
+                ps.metadata_assigntag(object_guids=['{}'.format(new_guid)],object_type=[f'{object_type}'],tag_names=[tag_name,migration_mode])
+                table.add_row( new_guid,  object_name, '✅')
+                logging.info("Imported " + '{}.answer.tml'.format(object_name) + " successfully")
+                pass
         except Exception as e:
             logging.info("couldn't import " + object_name)
-            print(str(e))
+            #print(str(e))
             FailedToLoad.append(object_name + '_' + GUID)
             object_name = object_name.replace("/", "")
-            print(object_name)
-            # dictionary_data = tml
-            map_failed_guid.append(
-                [object_guid, owner_name, object_name, object_type])
-            # a_file = open(".//failed_answers//{}.Answer.tml_{}".format(object_name,GUID), "wb")
-            # pickle.dump(dictionary_data, a_file)
+            #print(object_name)
+            #dictionary_data = tml
+            error_code = str(e) + str(UploadObject['object'][0]['response']['status'])
+            map_failed_guid.append([object_guid, owner_name, object_name, object_type, error_code])
+            table.add_row( object_guid,  object_name, '❌')
+            #a_file = open(".//failed_answers//{}.Answer.tml_{}".format(object_name,GUID), "wb")
+            #pickle.dump(dictionary_data, a_file)
             # a_file.close()
             pass
-    df = pd.DataFrame(map_guid, columns=[
-                      "old_guid", "new_guid", "owner", "object_name", "object_type"])
-    df_failed = pd.DataFrame(map_failed_guid, columns=[
-                             "old_guid", "owner", "object_name", "object_type"])
+    df = pd.DataFrame(map_guid, columns=["old_guid", "new_guid", "owner", "object_name", "object_type"])
+    df_failed = pd.DataFrame(map_failed_guid, columns=["old_guid", "owner", "object_name", "object_type","error_code"])
     FailedToLoadAnswer = FailedToLoad
     answer_author = df
     if Validate == False:
-        answer_author.to_csv(data_dir + "/info/" +
-                             'answer_author.csv', index=False, encoding='UTF8')
-        df_failed.to_csv(data_dir + "/info/" +
-                         'answer_failed.csv', index=False, encoding='UTF8')
+        answer_author.to_csv(data_dir + "/info/" + 'answer_author.csv', index=False, encoding='UTF8')
+        df_failed.to_csv(data_dir + "/info/" + 'answer_failed.csv', index=False, encoding='UTF8')
     else:
-        df_failed.to_csv(data_dir + "/info/" +
-                         'answer_failed.csv', index=False, encoding='UTF8')
+        answer_author.to_csv(data_dir + "/info/" + 'answer_author_validation.csv', index=False, encoding='UTF8')
+        df_failed.to_csv(data_dir + "/info/" + 'answer_failed.csv', index=False, encoding='UTF8')
         pass
 
-    print("Finished Migration/Validation of " +
-          str(len(answer_author)) + " objects")
+    output_message(f"Finished {mode_type} of " + str(len(answer_author)) + " objects","success")
     if len(FailedToLoadAnswer) == 0:
-        console.print(str(len(FailedToLoadAnswer)) +
-                      " Errors detected", style="info")
+        console.print(str(len(FailedToLoadAnswer)) + " Errors detected", style="bold #2070b2")
     else:
-        console.print(str(len(FailedToLoadAnswer)) +
-                      " Errors detected", style="error")
+        output_message(str(len(FailedToLoadAnswer)) + " Errors detected", "error")
+    console.print(table)
 
 
 @app.command(name="migrate_liveboards")
 def migrate_liveboards(
     ctx: typer.Context,
     cfg_name: str = typer.Option(..., help="Name of config file"),
-    # source_ts_url: str = typer.Option(..., help="URL of your ThoughtSpot cluster"),
-    # source_username: str = typer.Option(..., help="username of your source cluster"),
-    # source_password: str = typer.Option(..., help="password of your source cluster"),
-    # dest_ts_url: str = typer.Option(..., help="URL of your ThoughtSpot (Cloud) cluster"),
-    # dest_username: str = typer.Option(..., help="username of your destination cluster"),
-    # dest_password: str = typer.Option(..., help="password of your destination cluster"),
-    migration_mode: str = typer.Option(...,
-                                       help="specify if you want to migrate modified or created objects values: created/modified"),
-    validation_mode: str = typer.Option(...,
-                                        help="run in validation mode only True/False"),
-    # data_dir: pathlib.Path = typer.Option(..., help="directory to read input data from"),
+    migration_mode: str = typer.Option(...,help="specify if you want to migrate modified or created objects values: created/modified"),
+    validation_mode: str = typer.Option(..., help="run in validation mode only True/False"),
 ):
     """
     Migrates all created/modified liveboards from source to destination cluster
     """
     table = Table(show_header=True, header_style='bold #2070b2',
-                  title='[bold]Migrated Liveboards', expand=True, show_lines=True, row_styles=['#F0F0F8'])
-    table.add_column('assigned GUID', justify='left', width=60)
-    table.add_column('Name', justify='left', width=80)
-    table.add_column('Status', justify='center', width=30)
+                title='[bold]Migrated Liveboards',expand= True,show_lines=True, row_styles=['#F0F0F8'] )
+    table.add_column('assigned GUID', justify='left',width=60)
+    table.add_column('Name', justify='left',width=80)
+    table.add_column('Status', justify='center',width=30)
     get_cfg(cfg_name)
-    print("Starting Migration of {} answers in validation mode: {}".format(
-        migration_mode, validation_mode))
+    print("Starting Migration of {} liveboards in validation mode: {}".format(migration_mode, validation_mode))
     ts: TSRestApiV1 = TSRestApiV1(server_url=source_ts_url)
     ts.requests_session.verify = False
     try:
         ts.session_login(username=source_username, password=source_password)
-        console.print("successfully logged in to " +
-                      source_ts_url, style="info")
+        console.print("successfully logged in to " + source_ts_url, style="info")
     except requests.exceptions.HTTPError as e:
         console.print(e, style="error")
         print(e.response.content)
@@ -1247,7 +1276,7 @@ def migrate_liveboards(
         header=[0],
         delimiter='|')
     LiveboardList = NewLiveboardsDf['id'].to_list()
-    # LiveboardList = LiveboardList[:8]
+    #LiveboardList = LiveboardList[:8]
     NewObjectsList = []
     OwnerList = []
     FailedToLoad = []
@@ -1258,17 +1287,14 @@ def migrate_liveboards(
         object_guid = GUID
         object_type = 'PINBOARD_ANSWER_BOOK'
         counter += 1
-
+        
         try:
 
-            object_name = NewLiveboardsDf.loc[NewLiveboardsDf['id'] == GUID, 'name'].item(
-            )
+            object_name = NewLiveboardsDf.loc[NewLiveboardsDf['id'] == GUID, 'name'].item()
             object_name = object_name.replace("/", "")
-            owner_name = NewLiveboardsDf.loc[NewLiveboardsDf['id'] == GUID, 'authorName'].item(
-            )
+            owner_name = NewLiveboardsDf.loc[NewLiveboardsDf['id'] == GUID, 'authorName'].item()
             tml = ts.metadata_tml_export(guid=GUID)
-            print("Export for " +
-                  '{}.Liveboard.tml'.format(object_name) + " successfull")
+            logging.info("Export for " + '{}.Liveboard.tml'.format(object_name) + " successfull")
             for i in range(0, 100):
                 for n in range(0, 100):
                     try:
@@ -1281,21 +1307,20 @@ def migrate_liveboards(
                     except BaseException:
                         pass
             try:
-                UploadObject = ps.metadata_tml_import(
-                    tml, create_new_on_server=create_new, validate_only=Validate)
-                print("Status:")
-                console.print(UploadObject['object'][0]
-                              ['response']['status'], style="info")
-                print("New GUID assigned:")
-                print(UploadObject['object'][0]
-                      ['response']['header']['id_guid'])
-                NewObjectsList.append(
-                    UploadObject['object'][0]['response']['header']['id_guid'])
+                Liveboard.loads(json.dumps(tml)).dump(f"{data_dir}/tml_export/liveboards/{migration_mode}/{object_guid}.liveboard.tml")
+                UploadObject = ps.metadata_tml_import(tml, create_new_on_server=create_new, validate_only=Validate)
+                logging.info("Status:")
+                logging.info(UploadObject['object'][0]['response']['status'])
+                logging.info("New GUID assigned:")
+                logging.info(UploadObject['object'][0]['response']['header']['id_guid'])
+                NewObjectsList.append(UploadObject['object'][0]['response']['header']['id_guid'])
                 Owner = UploadObject['object'][0]['response']['header']['owner_guid']
                 OwnerList.append(Owner)
                 new_guid = UploadObject['object'][0]['response']['header']['id_guid']
-                map_guid.append(
-                    [object_guid, new_guid, owner_name, object_name, object_type])
+                map_guid.append([object_guid, new_guid, owner_name, object_name, object_type])
+                tag_name = 'migration_tools'
+                
+                table.add_row( new_guid,  object_name, '✅')
                 if Validate == True:
 
                     logging.info(
@@ -1303,43 +1328,37 @@ def migrate_liveboards(
                         '{}.Liveboard.tml'.format(object_name) +
                         " successfull")
                 else:
-                    console.print(
-                        "Imported " + '{}.Liveboard.tml'.format(object_name) + " successfully", style="info")
+                    ps.metadata_assigntag(object_guids=['{}'.format(new_guid)],object_type=[f'{object_type}'],tag_names=[tag_name,migration_mode])
+                    logging.info("Imported " + '{}.Liveboard.tml'.format(object_name) + " successfully")
             except Exception as e:
                 logging.info("couldn't import " + object_name)
                 logging.info(str(e))
                 error_code = str(e)
-                map_failed_guid.append(
-                    [object_guid, owner_name, object_name, object_type, error_code])
+                map_failed_guid.append([object_guid, owner_name, object_name, object_type, error_code])
+                table.add_row( object_guid,  object_name, '❌')
                 pass
             # fix liveboards script run
             pass
 
         except Exception as e:
-            print("couldn't save {}.Liveboard.tml with Guid: ".format(
-                object_name, GUID))
+            logging.info("couldn't save {}.Liveboard.tml with Guid: ".format(object_name, GUID))
 
             logging.info(str(e))
             pass
-    df = pd.DataFrame(map_guid, columns=[
-                      "old_guid", "new_guid", "owner", "object_name", "object_type"])
-    df_failed = pd.DataFrame(map_failed_guid, columns=[
-                             "old_guid", "owner", "object_name", "object_type", "error_code"])
-    # df_failed.to_csv(data_dir +"/"+ "info" + "/"+'failed_liveboards_mapping.csv', index=False,encoding = 'UTF8')
+    df = pd.DataFrame(map_guid, columns=["old_guid", "new_guid", "owner", "object_name", "object_type"])
+    df_failed = pd.DataFrame(map_failed_guid, columns=["old_guid", "owner", "object_name", "object_type", "error_code"])
+    #df_failed.to_csv(data_dir +"/"+ "info" + "/"+'failed_liveboards_mapping.csv', index=False,encoding = 'UTF8')
     liveboard_author = df
     if Validate == False:
-        liveboard_author.to_csv(data_dir + "/" + "info" + "/" +
-                                'liveboard_author.csv', index=False, encoding='UTF8')
-        df_failed.to_csv(data_dir + "/" + "info" + "/" +
-                         'liveboard_author_failed.csv', index=False, encoding='UTF8')
+        liveboard_author.to_csv(data_dir + "/" + "info" + "/" + 'liveboard_author.csv', index=False, encoding='UTF8')
+        df_failed.to_csv(data_dir + "/" + "info" + "/" + 'liveboard_author_failed.csv', index=False, encoding='UTF8')
     else:
         pass
-    if (len(map_failed_guid)) > 0:
+    if(len(map_failed_guid)) > 0:
         error_handler = 'error'
-    else:
+    else: 
         error_handler = 'success'
-    console.print(str(len(map_failed_guid)) +
-                  " Error(s) detected", style=f'{error_handler}')
+    console.print(str(len(map_failed_guid)) + " Error(s) detected",style=f'{error_handler}')
     console.print(table)
 
 
@@ -1347,29 +1366,20 @@ def migrate_liveboards(
 def migrate_worksheets(
     ctx: typer.Context,
     cfg_name: str = typer.Option(..., help="Name of config file"),
-    # source_ts_url: str = typer.Option(..., help="URL of your ThoughtSpot cluster"),
-    # source_username: str = typer.Option(..., help="username of your source cluster"),
-    # source_password: str = typer.Option(..., help="password of your source cluster"),
-    # dest_ts_url: str = typer.Option(..., help="URL of your ThoughtSpot (Cloud) cluster"),
-    # dest_username: str = typer.Option(..., help="username of your destination cluster"),
-    # dest_password: str = typer.Option(..., help="password of your destination cluster"),
-    migration_mode: str = typer.Option(...,
-                                       help="specify if you want to migrate modified or created objects values: created/modified"),
-    validation_mode: str = typer.Option(...,
-                                        help="run in validation mode only True/False"),
-    # data_dir: pathlib.Path = typer.Option(..., help="directory to read input data from"),
+    migration_mode: str = typer.Option(...,help="specify if you want to migrate modified or created objects values: created/modified"),
+    validation_mode: str = typer.Option(..., help="run in validation mode only True/False"),
+    #data_dir: pathlib.Path = typer.Option(..., help="directory to read input data from"),
 ):
     """
     Migrates all created/modified worksheets from source to destination cluster
     """
     table = Table(show_header=True, header_style='bold #2070b2',
-                  title='[bold]Migrated Worksheets', expand=True, show_lines=True, row_styles=['#F0F0F8'])
-    table.add_column('assigned GUID', justify='left', width=60)
-    table.add_column('Name', justify='left', width=80)
-    table.add_column('Status', justify='center', width=30)
+                title='[bold]Migrated Worksheets',expand= True,show_lines=True, row_styles=['#F0F0F8'] )
+    table.add_column('assigned GUID', justify='left',width=60)
+    table.add_column('Name', justify='left',width=80)
+    table.add_column('Status', justify='center',width=30)
     get_cfg(cfg_name)
-    print("Starting Migration of {} answers in validation mode: {}".format(
-        migration_mode, validation_mode))
+    print("Starting Migration of {} worksheets in validation mode: {}".format(migration_mode, validation_mode))
     ts: TSRestApiV1 = TSRestApiV1(server_url=source_ts_url)
     ts.requests_session.verify = False
     try:
@@ -1398,7 +1408,8 @@ def migrate_worksheets(
     else:
         create_new = False
         subfolder = 'modified'
-
+    worksheet_author_temp = pd.DataFrame(map_guid, columns=["old_guid", "new_guid", "owner", "object_name", "object_type"])
+    worksheet_author_temp.to_csv(data_dir + "/info/" + 'worksheet_author.csv', index=False, encoding='UTF8')
     NewWorksheetsDf = pd.read_csv(
         data_dir +
         "/" +
@@ -1416,82 +1427,74 @@ def migrate_worksheets(
         object_guid = GUID
         try:
             object_type = 'LOGICAL_TABLE'
-            object_name = NewWorksheetsDf.loc[NewWorksheetsDf['id'] == GUID, 'name'].item(
-            )
-            owner_name = NewWorksheetsDf.loc[NewWorksheetsDf['id'] == GUID, 'authorName'].item(
-            )
+            object_name = NewWorksheetsDf.loc[NewWorksheetsDf['id'] == GUID, 'name'].item()
+            owner_name = NewWorksheetsDf.loc[NewWorksheetsDf['id'] == GUID, 'authorName'].item()
             tml = ts.metadata_tml_export(guid=GUID)
-            print("Export for " +
-                  '{}.Worksheet.tml'.format(object_name) + " successfull")
-            UploadObject = ps.metadata_tml_import(
-                tml, create_new_on_server=create_new, validate_only=Validate)
-            # print("Status:")
-            print(UploadObject['object'][0]['response']['status'])
-            # print("New GUID assigned:")
-            # print(UploadObject['object'][0]['response']['header']['id_guid'])
-            NewObjectsList.append(
-                UploadObject['object'][0]['response']['header']['id_guid'])
-            # owner_name = UploadObject['object'][0]['response']['header']['owner_guid']
-            new_guid = UploadObject['object'][0]['response']['header']['id_guid']
-            map_guid.append(
-                [object_guid, new_guid, owner_name, object_name, object_type])
+            logging.info("Export for " + '{}.Worksheet.tml'.format(object_name) + " successfull")
+            Worksheet.loads(json.dumps(tml)).dump(f"{data_dir}/tml_export/worksheets/{migration_mode}/{object_name}_{object_guid}.worksheet.tml")
+            UploadObject = ps.metadata_tml_import(tml, create_new_on_server=create_new, validate_only=Validate)
+            
+            
+            logging.info(UploadObject['object'][0]['response']['status'])
+            
+            NewObjectsList.append(UploadObject['object'][0]['response']['header']['id_guid'])
+            try:
+                new_guid = UploadObject['object'][0]['response']['header']['id_guid']
+                map_guid.append([object_guid, new_guid, owner_name, object_name, object_type])
+            except:
+                logging.info("couldn't assign new guid, object already present in target environment")
+                new_guid = ''
+            table.add_row( new_guid,  object_name, '✅')
+            tag_name = 'migration_tools'
+            
             if Validate == True:
-                console.print(
-                    "Validation for " + '{}.Worksheet.tml'.format(object_name) + " successfull", style="info")
+                logging.info("Validation for " + '{}.Worksheet.tml'.format(object_name) + " successfull")
             else:
-                console.print(
-                    "Imported " + '{}.Worksheet.tml'.format(object_name) + " successfully", style="info")
+                ps.metadata_assigntag(object_guids=['{}'.format(new_guid)],object_type=[f'{object_type}'],tag_names=[tag_name,migration_mode])
+                logging.info("Imported " + '{}.Worksheet.tml'.format(object_name) + " successfully")
         except Exception as e:
-            console.print("couldn't save {}.Worksheet.tml".format(
-                object_name), style="error")
-            FailedToLoad.append(
-                [object_guid, owner_name, object_name, object_type])
-            print(str(e))
+            table.add_row( object_guid,  object_name, '❌')
+            logging.info("couldn't save {}.Worksheet.tml".format(object_name))
+            error_code = str(e)
+            FailedToLoad.append([object_guid, owner_name, object_name, object_type,error_code])
+            logging.info(str(e))
             pass
 
-    df = pd.DataFrame(map_guid, columns=[
-                      "old_guid", "new_guid", "owner", "object_name", "object_type"])
-    df_failed = pd.DataFrame(FailedToLoad, columns=[
-                             "old_guid", "owner", "object_name", "object_type"])
+    df = pd.DataFrame(map_guid, columns=["old_guid", "new_guid", "owner", "object_name", "object_type"])
+    df_failed = pd.DataFrame(FailedToLoad, columns=["old_guid", "owner", "object_name", "object_type","error_code"])
     worksheet_author = df
     if Validate == False:
-        worksheet_author.to_csv(
-            data_dir + "/info/" + 'worksheet_author.csv', index=False, encoding='UTF8')
-        df_failed.to_csv(data_dir + "/info/" +
-                         'worksheet_failed.csv', index=False, encoding='UTF8')
+        worksheet_author.to_csv(data_dir + "/info/" + 'worksheet_author.csv', index=False, encoding='UTF8')
+        df_failed.to_csv(data_dir + "/info/" + 'worksheet_failed.csv', index=False, encoding='UTF8')
     else:
-        df_failed.to_csv(data_dir + "/info/" +
-                         'worksheet_failed.csv', index=False, encoding='UTF8')
+        df_failed.to_csv(data_dir + "/info/" + 'worksheet_failed.csv', index=False, encoding='UTF8')
         pass
-    print("Finished Migration/Validation of " +
-          str(len(worksheet_author)) + " objects")
-    if len(df_failed) == 0:
-        console.print(str(len(df_failed)) + " Errors detected", style="info")
-    else:
-        console.print(str(len(df_failed)) + " Errors detected", style="error")
-
+    logging.info("Finished Migration/Validation of " + str(len(worksheet_author)) + " objects")
+    if(len(df_failed)) > 0:
+        error_handler = 'error'
+    else: 
+        error_handler = 'success'
+    console.print(str(len(df_failed)) + " Error(s) detected",style=f'{error_handler}')
+    console.print(table)
 
 @app.command(name="migrate_tables")
 def migrate_tables(
     ctx: typer.Context,
     cfg_name: str = typer.Option(..., help="Name of config file"),
-    migration_mode: str = typer.Option(
-        ..., help="specify if you want to migrate modified or created objects values: created/modified"),
-    validation_mode: str = typer.Option(...,
-                                        help="run in validation mode only True/False"),
-    # data_dir: pathlib.Path = typer.Option(..., help="directory to read input data from"),
+    migration_mode: str = typer.Option(...,help="specify if you want to migrate modified or created objects values: created/modified"),
+    validation_mode: str = typer.Option(..., help="run in validation mode only True/False"),
+    #data_dir: pathlib.Path = typer.Option(..., help="directory to read input data from"),
 ):
     """
     Migrates all created/modified tables from source to destination cluster
     """
     table = Table(show_header=True, header_style='bold #2070b2',
-                  title='[bold]Migrated tables', expand=True, show_lines=True, row_styles=['#F0F0F8'])
-    table.add_column('assigned GUID', justify='left', width=60)
-    table.add_column('Name', justify='left', width=80)
-    table.add_column('Status', justify='center', width=30)
+                title='[bold]Migrated tables',expand= True,show_lines=True, row_styles=['#F0F0F8'] )
+    table.add_column('assigned GUID', justify='left',width=60)
+    table.add_column('Name', justify='left',width=80)
+    table.add_column('Status', justify='center',width=30)
     get_cfg(cfg_name)
-    print("Starting Migration of {} tables in validation mode: {}".format(
-        migration_mode, validation_mode))
+    print("Starting Migration of {} tables in validation mode: {}".format(migration_mode, validation_mode))
     ts: TSRestApiV1 = TSRestApiV1(server_url=source_ts_url)
     ts.requests_session.verify = False
     try:
@@ -1538,114 +1541,93 @@ def migrate_tables(
         object_guid = GUID
         try:
             object_type = 'LOGICAL_TABLE'
-            object_name = NewtablesDf.loc[NewtablesDf['id']
-                                          == GUID, 'name'].item()
-            owner_name = NewtablesDf.loc[NewtablesDf['id']
-                                         == GUID, 'authorName'].item()
+            object_name = NewtablesDf.loc[NewtablesDf['id'] == GUID, 'name'].item()
+            owner_name = NewtablesDf.loc[NewtablesDf['id'] == GUID, 'authorName'].item()
             tml = ts.metadata_tml_export(guid=GUID)
-            logging.info("Export for " +
-                         '{}.table.tml'.format(object_name) + " successfull")
-            tbl_tml.loads(json.dumps(tml)).dump(
-                f"{data_dir}/tml_export/tables/{migration_mode}/{object_name}_{object_guid}.table.tml")
-            UploadObject = ps.metadata_tml_import(
-                tml, create_new_on_server=create_new, validate_only=Validate)
-
+            logging.info("Export for " + '{}.table.tml'.format(object_name) + " successfull")
+            tbl_tml.loads(json.dumps(tml)).dump(f"{data_dir}/tml_export/tables/{migration_mode}/{object_name}_{object_guid}.table.tml")
+            UploadObject = ps.metadata_tml_import(tml, create_new_on_server=create_new, validate_only=Validate)
+            
+            
             logging.info(UploadObject['object'][0]['response']['status'])
-
-            NewObjectsList.append(
-                UploadObject['object'][0]['response']['header']['id_guid'])
-            # owner_name = UploadObject['object'][0]['response']['header']['owner_guid']
+            
+            NewObjectsList.append(UploadObject['object'][0]['response']['header']['id_guid'])
+            #owner_name = UploadObject['object'][0]['response']['header']['owner_guid']
             try:
                 new_guid = UploadObject['object'][0]['response']['header']['id_guid']
-                map_guid.append(
-                    [object_guid, new_guid, owner_name, object_name, object_type])
+                map_guid.append([object_guid, new_guid, owner_name, object_name, object_type])
             except:
-                logging.info(
-                    "couldn't assign new guid, object already present in target environment")
+                logging.info("couldn't assign new guid, object already present in target environment")
                 new_guid = ''
-            table.add_row(new_guid,  object_name, '✅')
+            table.add_row( new_guid,  object_name, '✅')
             tag_name = 'migration_tools'
-
+            
             if Validate == True:
-                logging.info("Validation for " +
-                             '{}.table.tml'.format(object_name) + " successfull")
+                logging.info("Validation for " + '{}.table.tml'.format(object_name) + " successfull")
             else:
-                ps.metadata_assigntag(object_guids=['{}'.format(new_guid)], object_type=[
-                                      f'{object_type}'], tag_names=[tag_name])
-                logging.info(
-                    "Imported " + '{}.table.tml'.format(object_name) + " successfully")
+                ps.metadata_assigntag(object_guids=['{}'.format(new_guid)],object_type=[f'{object_type}'],tag_names=[tag_name,migration_mode])
+                logging.info("Imported " + '{}.table.tml'.format(object_name) + " successfully")
         except Exception as e:
-            table.add_row(object_guid,  object_name, '❌')
+            table.add_row( object_guid,  object_name, '❌')
             logging.info("couldn't save {}.table.tml".format(object_name))
             error_code = str(e)
-            FailedToLoad.append(
-                [object_guid, owner_name, object_name, object_type, error_code])
+            FailedToLoad.append([object_guid, owner_name, object_name, object_type,error_code])
             print(str(e))
             pass
 
-    df = pd.DataFrame(map_guid, columns=[
-                      "old_guid", "new_guid", "owner", "object_name", "object_type"])
-    df_failed = pd.DataFrame(FailedToLoad, columns=[
-                             "old_guid", "owner", "object_name", "object_type", "error_code"])
+    df = pd.DataFrame(map_guid, columns=["old_guid", "new_guid", "owner", "object_name", "object_type"])
+    df_failed = pd.DataFrame(FailedToLoad, columns=["old_guid", "owner", "object_name", "object_type","error_code"])
     table_author = df
     if Validate == False:
-        table_author.to_csv(data_dir + "/info/" +
-                            'table_author.csv', index=False, encoding='UTF8')
-        df_failed.to_csv(data_dir + "/info/" +
-                         'table_failed.csv', index=False, encoding='UTF8')
+        table_author.to_csv(data_dir + "/info/" + 'table_author.csv', index=False, encoding='UTF8')
+        df_failed.to_csv(data_dir + "/info/" + 'table_failed.csv', index=False, encoding='UTF8')
     else:
         pass
-    logging.info("Finished Migration/Validation of " +
-                 str(len(table_author)) + " objects")
-    if (len(df_failed)) > 0:
+    logging.info("Finished Migration/Validation of " + str(len(table_author)) + " objects")
+    if(len(df_failed)) > 0:
         error_handler = 'error'
-    else:
+    else: 
         error_handler = 'success'
-    console.print(str(len(df_failed)) + " Error(s) detected",
-                  style=f'{error_handler}')
+    console.print(str(len(df_failed)) + " Error(s) detected",style=f'{error_handler}')
     console.print(table)
-
 
 @app.command(name="transfer_ownership")
 def transfer_ownership(
     ctx: typer.Context,
     cfg_name: str = typer.Option(..., help="Name of config file"),
-    # dest_ts_url: str = typer.Option(..., help="URL of your ThoughtSpot cluster"),
-    # dest_username: str = typer.Option(..., help="username of your source cluster"),
-    # dest_password: str = typer.Option(..., help="password of your source cluster"),
-    # data_dir: pathlib.Path = typer.Option(..., help="directory to store output data in"),
+    validate_only: str = typer.Option(..., help="yes/no"),
 ):
     """
     Transfers the ownership from tsadmin to the actual user
     """
-    output_message(
-        "🔑Transferring Ownership for all kind of objects", 'success')
+    output_message("🔐Transferring Ownership for all kind of objects",'success')
     get_cfg(cfg_name)
     log.info(f"Transfering Ownership for new objects")
     ts = HTTPClient(ts_url=dest_ts_url)
     r = ts.login(dest_username, dest_password)
     r.raise_for_status()
 
-    # map_user = pd.read_csv(data_dir +"/"+'mapping_users.csv', header=[0],delimiter = '|')
+    #map_user = pd.read_csv(data_dir +"/"+'mapping_users.csv', header=[0],delimiter = '|')
     object_author_table = (
         pd.read_csv(data_dir + "/info/" + 'answer_author.csv', header=[0])
     )
-
+    
     try:
-        print("reading liveboards")
-        liveboard_author = pd.read_csv(
-            data_dir + "/info/" + 'liveboard_author.csv', header=[0])
-        print(liveboard_author)
-        object_author_table = pd.concat(
-            [object_author_table, liveboard_author], ignore_index=True, sort=False)
-        console.print(
-            "append liveboard authors to object author table", style="info")
+        logging.info("reading liveboards")
+        liveboard_author = pd.read_csv(data_dir + "/info/" + 'liveboard_author.csv', header=[0])
+        object_author_table = pd.concat([object_author_table, liveboard_author], ignore_index=True, sort=False)
+        console.print("append liveboard authors to object author table", style="info")
     except Exception:
-        console.print(
-            "WARNING: liveboard author table not present, please migrate liveboards first", style="warning")
-    print(object_author_table)
+        console.print("WARNING: liveboard author table not present, please migrate liveboards first", style="warning")
+    try:
+        logging.info("reading worksheet")
+        worksheet_author = pd.read_csv(data_dir + "/info/" + 'worksheet_author.csv', header=[0])
+        object_author_table = pd.concat([object_author_table, worksheet_author], ignore_index=True, sort=False)
+        console.print("append worksheet authors to object author table", style="info")
+    except Exception:
+        console.print("WARNING: worksheet author table not present, please migrate worksheets first", style="warning")
 
-    # object_author_table = object_author_table.replace('@','%40', regex=True)
+
     for i in range(len(object_author_table)):
         ObjGUID = object_author_table['new_guid'].iloc[i]
         FromUser = f'{dest_username}'
@@ -1657,13 +1639,13 @@ def transfer_ownership(
                 logging.info(str(t))
             else:
                 pass
-
+            
             name_string = object_author_table['object_name'].iloc[i]
             length_string = 30 - len(name_string)
             console.print(
-                str(i+1) + ". " +
+                str(i+1)+ ". "+
                 "[green][bold]✅[/green][/bold] ---> [bold][cyan]" +
-                object_author_table['object_type'].iloc[i] + "[/bold][/cyan]: " +
+                object_author_table['object_type'].iloc[i] + "[/bold][/cyan]: "+
                 name_string[0:29] +
                 ""
                 + " "*length_string +
@@ -1672,31 +1654,22 @@ def transfer_ownership(
                 "[/bold][/cyan] to [bold][cyan]" +
                 ToUser)
         except Exception as e:
-            console.print(f"failed to assign authorship: {e}", style='error')
+            console.print(f"failed to assign authorship: {e}",style ='error')
             pass
 
 
-@app.command(name="add_tags")
-def add_tags(
+@app.command(name="migrate_tags")
+def migrate_tags(
     ctx: typer.Context,
     cfg_name: str = typer.Option(..., help="Name of config file"),
-    # dest_ts_url: str = typer.Option(..., help="URL of your ThoughtSpot cluster"),
-    # dest_username: str = typer.Option(..., help="username of your source cluster"),
-    # dest_password: str = typer.Option(..., help="password of your source cluster"),
-    # data_dir: pathlib.Path = typer.Option(..., help="directory to store output data in"),
 ):
     """
     Adding new tags to destination cluster and assigning them to the new/modified objects
     """
     get_cfg(cfg_name)
-    ps: TSRestApiV1 = TSRestApiV1(server_url=dest_ts_url)
-    ps.requests_session.verify = False
-    try:
-        ps.session_login(username=dest_username, password=dest_password)
-        console.print("successfully logged in to " + dest_ts_url, style="info")
-    except Exception as e:
-        print(e)
-        print(e.response.content)
+    ps = HTTPClient(ts_url=dest_ts_url)
+    r = ps.login(dest_username, dest_password)
+    r.raise_for_status()
 
     tagged_objects = (
         pd.read_csv(
@@ -1713,8 +1686,7 @@ def add_tags(
                  .pipe(comment, msg="ts_tag.csv is present in cs_tools_falcon folder")
                  )
     tag_info = (
-        pd.read_csv(data_dir + "/" + "info/" +
-                    'answer_author.csv', header=[0], delimiter=',')
+        pd.read_csv(data_dir + "/" + "info/" + 'answer_author.csv', header=[0], delimiter=',')
         .pipe(comment, msg="Reading object information")
         .merge(tagged_objects, how="inner", left_on='old_guid', right_on='object_guid')
         .merge(tag_names, how="left", left_on='tag_guid', right_on='tag_guid')
@@ -1728,11 +1700,9 @@ def add_tags(
                 object_guids=['{}'.format(guid)],
                 object_type=['QUESTION_ANSWER_BOOK'],
                 tag_names=[tag_name])
-            console.print('{} Tag assigned to {}'.format(
-                tag_name, object_name), style="info")
+            console.print('{} Tag assigned to {}'.format(tag_name, object_name), style="info")
         except BaseException:
-            console.print('failed to assign tag for object: ' +
-                          object_name, style="error")
+            console.print('failed to assign tag for object: ' + object_name, style="error")
         pass
 
 
@@ -1740,10 +1710,8 @@ def add_tags(
 def share_permissions(
     ctx: typer.Context,
     cfg_name: str = typer.Option(..., help="Name of config file"),
-    # dest_ts_url: str = typer.Option(..., help="URL of your ThoughtSpot cluster"),
-    # dest_username: str = typer.Option(..., help="username of your source cluster"),
-    # dest_password: str = typer.Option(..., help="password of your source cluster"),
-    # data_dir: pathlib.Path = typer.Option(..., help="directory to store output data in"),
+    sharing_mode: str = typer.Option(..., help="Specify if you want to share the delta (permissions for new objects only) or all objects"),
+    validation_mode: str = typer.Option(..., help="Validate only [True,False]"),
 ):
     """ 
     Share Objects with users/groups on thertarget cluster
@@ -1758,59 +1726,93 @@ def share_permissions(
         print(e.response.content)
     # Start
     group_map = (
-        pd.read_csv(data_dir + "/" + "cs_tools_falcon" + "/" +
-                    'ts_group.csv', header=[0], delimiter='|')
+        pd.read_csv(data_dir  + "/" + 'group_id_mapping.csv', header=[0], delimiter='|')
         .pipe(comment, msg="Reading group mapping table")
     )
     user_map = (
-        pd.read_csv(data_dir + "/" + "cs_tools_falcon" + "/" +
-                    'ts_user.csv', header=[0], delimiter='|')
+        pd.read_csv(data_dir + "/" + 'user_id_mapping.csv', header=[0], delimiter='|')
         .pipe(comment, msg="Reading user mapping table")
     )
     # read all ownerships
-    output_message("🔑Sharing content with users & groups", 'success')
+    output_message("🔐Sharing content with users & groups",'success')
 
-    permissions_df = pd.read_csv(
-        data_dir +
-        "/" +
-        "cs_tools_falcon" +
-        "/" +
-        'ts_sharing_access.csv',
-        header=[0],
-        delimiter='|')
-    new_objects = (
-        pd.read_csv(data_dir + "/" + "info" + "/" +
-                    'ownership.csv', header=[0], delimiter=',')
-        .pipe(comment, msg="Reading object information")
-        .merge(permissions_df, how="inner", left_on='object_guid', right_on='old_guid')
-        .merge(user_map, how="left", left_on='shared_to_user_guid', right_on='user_guid')
-        .merge(group_map, how="left", left_on='shared_to_group_guid', right_on='group_guid')
-    )
-    new_objects.to_csv(data_dir + "/" + "info" + "/" +
-                       "sharing_permissions.txt", index=False, encoding='utf8')
-    sharing_df = new_objects
-    # loop through sharing dataframe:
-    for i in range(len(sharing_df)):
-        try:
-            if pd.isnull(sharing_df['shared_to_group_guid'].iloc[i]):
-                user_guid = sharing_df['shared_to_user_guid'].iloc[i]
-                object_guid = sharing_df['new_guid'].iloc[i]
-                share_user_name = sharing_df['username'].iloc[i]
-            else:
-                user_guid = sharing_df['shared_to_group_guid'].iloc[i]
-                object_guid = sharing_df['new_guid'].iloc[i]
-                share_user_name = sharing_df['group_name'].iloc[i]
-            sharing_type = sharing_df['share_mode'].iloc[i]
-            object_type = sharing_df['object_type'].iloc[i]
-            perms = {"permissions": {"{}".format(
-                user_guid): {"shareMode": "{}".format(sharing_type)}}}
-            ts.security_share(shared_object_type=object_type, shared_object_guids=[
-                              object_guid], permissions=perms)
-            print("shared " +
-                  sharing_df['object_name'].iloc[i] + ' with ' + user_guid)
-        except BaseException:
-            print("failed to share" + object_guid + " with " + share_user_name)
-            pass
+    ## Permissions for new objects
+    metadata = pd.read_csv(data_dir +"/cs_tools_falcon/ts_metadata_object.csv",header=[0],delimiter='|')
+    permissions_df = pd.read_csv(data_dir +"/cs_tools_falcon/ts_sharing_access.csv",header=[0],delimiter='|')
+    #### ----> existing objects:
+    modified_objects = (
+            pd.read_csv(data_dir +"/cs_tools_falcon/ts_sharing_access.csv",header=[0],delimiter='|')
+            .pipe(comment, msg="Reading object information")
+            .merge(metadata, how="left", on='object_guid')
+            .merge(user_map, how="left", left_on='shared_to_user_guid', right_on='id_user_old')
+            .merge(group_map, how="left", left_on='shared_to_group_guid', right_on='id_group_old')
+        )
+    modified_objects['new_guid'] = modified_objects['object_guid']
+    modified_objects.to_csv(data_dir + "/" + "info" + "/" + "sharing_permissions_modified.csv", index=False, encoding='utf8')
+    if sharing_mode == 'delta':
+        object_list = ['answer','liveboard','worksheet']
+    elif sharing_mode == 'all':
+        object_list = ['answer']
+    else:
+        output_message("no valid sharing-mode specified choose either all or delta",'error')
+
+    for object_type in object_list:
+        ##### ---> new objects
+        """
+        new_objects = (
+            pd.read_csv(data_dir + "/" + "info" + "/" + f'{object_type}_author.csv', header=[0], delimiter=',')
+            .pipe(comment, msg="Reading object information")
+            .merge(permissions_df, how="inner", left_on='old_guid', right_on='object_guid')
+            .merge(user_map, how="left", left_on='shared_to_user_guid', right_on='id_user_old')
+            .merge(group_map, how="left", left_on='shared_to_group_guid', right_on='id_group_old')
+        )
+        new_objects.to_csv(data_dir + "/" + "info" + "/" + f"sharing_permissions_{object_type}.csv", index=False, encoding='utf8')
+        """
+        if sharing_mode == 'delta':
+            new_objects = (
+            pd.read_csv(data_dir + "/" + "info" + "/" + f'{object_type}_author.csv', header=[0], delimiter=',')
+            .pipe(comment, msg="Reading object information")
+            .merge(permissions_df, how="inner", left_on='old_guid', right_on='object_guid')
+            .merge(user_map, how="left", left_on='shared_to_user_guid', right_on='id_user_old')
+            .merge(group_map, how="left", left_on='shared_to_group_guid', right_on='id_group_old')
+            )
+            new_objects.to_csv(data_dir + "/" + "info" + "/" + f"sharing_permissions_{object_type}.csv", index=False, encoding='utf8')
+            sharing_df = new_objects
+            ob_name = 'object_name'
+        elif sharing_mode == 'all':
+            sharing_df = modified_objects
+            ob_name = 'name'
+        else: 
+            output_message("specify a valid value for sharing-mode i.e. [delta,all]",'error')
+
+
+
+
+        # loop through sharing dataframe:
+        for i in track(range(len(sharing_df)), description=f'[green]Sharing Content...{object_type}'):
+            try:
+                if pd.isnull(sharing_df['shared_to_group_guid'].iloc[i]):
+                    user_guid = sharing_df['id_user_new'].iloc[i]
+                    object_guid = sharing_df['new_guid'].iloc[i]
+                    share_user_name = sharing_df['user_name'].iloc[i]
+                    ot = 'user'
+                else:
+                    user_guid = sharing_df['id_group_new'].iloc[i]
+                    object_guid = sharing_df['new_guid'].iloc[i]
+                    share_user_name = sharing_df['group_name'].iloc[i]
+                    ot = 'group'
+                sharing_type = sharing_df['share_mode'].iloc[i]
+                object_type = sharing_df['object_type'].iloc[i]
+                perms = {"permissions": {"{}".format(user_guid): {"shareMode": "{}".format(sharing_type)}}}
+                if validation_mode == 'False':
+                    ts.security_share(shared_object_type=object_type, shared_object_guids=[object_guid], permissions=perms)
+                    logging.info("shared " + sharing_df[f'{ob_name}'].iloc[i] + ' with ' + share_user_name)
+                else:
+                    logging.info("validated sharing task for " + sharing_df[f'{ob_name}'].iloc[i] + ' with ' + share_user_name)
+            except BaseException:
+                logging.info("failed to share" + object_guid + f" with {ot}" +  str(share_user_name))
+                pass
+
 
 
 def _load_environment_defaults(context_settings: dict[str, Any]) -> None:
