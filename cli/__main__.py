@@ -802,7 +802,7 @@ def gather_deltas(
     df = pd.json_normalize(ts.groups().json())
     df = df.rename(columns={"header.created": "created",
                    "header.modified": "modified"})
-    column_dir_mapping = {"created": "new", "modified": "modified"}
+    column_dir_mapping = {"created": "created", "modified": "modified"}
 
     for column, sub_dir in column_dir_mapping.items():
         (
@@ -845,14 +845,16 @@ def gather_deltas(
         console.print("------> " + f"{subtype}" +
                       " objects:", style="cyan bold")
         for name, ts_api_method in metadata.items():
-            df = (pd.json_normalize(ts_api_method().json(), record_path='headers'))
-            df = df.query(f"{subtype} > @timestamp")
-            console.print(f"Number of {subtype} "+name + "s: " + str(len(df)))
-            ###
             if subtype == 'modified':
                 query_string = 'modified > @timestamp & created < @timestamp'
             else:
                 query_string = 'modified > @timestamp'
+
+            df = (pd.json_normalize(ts_api_method().json(), record_path='headers'))
+            df = df.query(f"{query_string}")
+            console.print(f"Number of {subtype} "+name + "s: " + str(len(df)))
+            ###
+            
             # console.print(query_string)
             ###
             (
