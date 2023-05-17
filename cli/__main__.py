@@ -2,14 +2,13 @@ from typing import Any
 import datetime as dt
 import logging
 import pathlib
-
 import pandas as pd
 import toml
 import typer
 import pytz
 import os
-from migration_tools import HTTPClient, connection_migrator, ENonCriticalError, EDBSchemaNotInstalled
 import json
+from migration_tools import HTTPClient, connection_migrator, ENonCriticalError, EDBSchemaNotInstalled, EDatabaseNotSupported
 from ._util import State
 from ._ux import comment, console, output_message
 from pathlib import Path
@@ -25,6 +24,8 @@ from rich.table import Table
 from rich.progress import Progress
 from time import sleep
 import requests
+from tabulate import tabulate
+from typer import Argument as A_, Option as O_
 try:
     # from thoughtspot_tml.utils import determine_tml_type
     # from thoughtspot_tml import Table
@@ -1545,6 +1546,8 @@ def migrate_tables(
             owner_name = NewtablesDf.loc[NewtablesDf['id'] == GUID, 'authorName'].item()
             tml = ts.metadata_tml_export(guid=GUID)
             logging.info("Export for " + '{}.table.tml'.format(object_name) + " successfull")
+            #tml['table']['db']='hive_metastore'
+            #tml['table']['schema']='hive_metastores'
             tbl_tml.loads(json.dumps(tml)).dump(f"{data_dir}/tml_export/tables/{migration_mode}/{object_name}_{object_guid}.table.tml")
             UploadObject = ps.metadata_tml_import(tml, create_new_on_server=create_new, validate_only=Validate)
             

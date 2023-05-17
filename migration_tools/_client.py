@@ -1,10 +1,49 @@
-from typing import List
+from typing import List,Iterable
 
 import httpx
+import json
 
 from migration_tools._version import __version__
 from migration_tools._typing import GUID
 
+def dedupe(iterable: Iterable) -> Iterable:
+    """
+    Removes duplicates.
+
+    In python 3.6+, this algorithm preserves order of the underlying
+    iterable.
+    """
+    return iter(dict.fromkeys(iterable))
+
+def stringified_array(iterable: Iterable, *, unique: bool = True) -> str:
+    """
+    Convert an iterable into a string version.
+
+    The REST v1 API accepts some parameters in the form of an array, but
+    held as a string..
+
+        https://my.thoughtspot.cloud
+            ?type=LOGICAL_TABLE
+            &subtypes=[WORKSHEET, USER_DEFINED]
+
+    ..yet both requests and httpx see values in a list to `params` as
+    multi-optioned paramaters..
+
+        https://my.thoughtspot.cloud
+            ?type=LOGICAL_TABLE
+            &subtypes=WORKSHEET
+            &subtypes=USER_DEFINED
+
+    This function corrects this by simply converting the input into a
+    comma-separated string.
+    """
+    if not iterable:
+        return None
+
+    if unique:
+        iterable = dedupe(iterable)
+
+    return '[' + ','.join(list(iterable)) + ']'
 
 class HTTPClient(httpx.Client):
     """
@@ -54,6 +93,17 @@ class HTTPClient(httpx.Client):
         p = {"name": user_name}
         r = self.get("/callosum/v1/tspublic/v1/user",params=p)
         return r
+    ## orgs
+    def switch_org(self,orgid) -> httpx.Response:
+        d = {"orgid": orgid}
+        r = self.put("/callosum/v1/tspublic/v1/session/orgs",data=d)
+        return r
+    
+    def get_orgs(self) -> httpx.Response:
+        p = {'batchsize': '-1','offset': '-1'}
+        r = self.get("/callosum/v1/tspublic/v1/session/orgs",params=p)
+        return r
+
 
     def user_list(self) -> httpx.Response:
         r = self.get("/callosum/v1/tspublic/v1/user/list")
@@ -173,14 +223,19 @@ class HTTPClient(httpx.Client):
 
     # tml export import
 
-    def tml_export(self, guids: List[str]) -> httpx.Response:
-        p = {"export_ids": '[' + ','.join(guids) + ']', "formattype": "JSON", "export_associated": False , "export_fqn": False}
-        r = self.post("/callosum/v1/tspublic/v1/metadata/tml/export", params=p)
+    def metadata_tml_export(self,guid: List[GUID],) -> httpx.Response:
+        d = {'export_ids': stringified_array(guid), 'formattype': 'JSON','export_associated': 'false','export_fqn': 'true'}
+        r = self.post('/callosum/v1/tspublic/v1/metadata/tml/export', data=d, headers={'Accept': 'text/plain'})
         return r
     
-    def import_tml(self, tml: dict, import_policy: str, force_create: bool):
-        p = {"imported_objects": tml, "import_policy": import_policy, "force_create": force_create}
-        r = self.post("/callosum/v1/tspublic/v1/metadata/tml/import", params=p)
+    def metadata_tml_import(self, tml: List[str], import_policy: str, force_create: bool):
+        d = {"import_objects": json.dumps(tml), "import_policy": import_policy, "force_create": force_create}
+        r = self.post("/callosum/v1/tspublic/v1/metadata/tml/import", data=d,headers={'Accept': 'text/plain'})
+        return r
+    
+    def metadata_assigntag(self, object_guids: List[GUID], object_type: List[str], tag_names: List[str]):
+        d = {"id": stringified_array(object_guids), "type": stringified_array(object_type), "tagname": stringified_array(tag_names)}
+        r = self.post("/callosum/v1/tspublic/v1/metadata/assigntag", data=d)
         return r
 
     def user_read(self, user_guid: GUID) -> httpx.Response:
@@ -220,4 +275,5 @@ class HTTPClient(httpx.Client):
         }
         r = self.get("/callosum/v1/tspublic/v1/metadata/listas", params=p)
         return r
+
 

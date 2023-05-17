@@ -5,7 +5,7 @@ build-backend = "poetry.core.masonry.api"
 
 [tool.poetry]
 name = "migration_tools"
-version = "1.1.0"
+version = "1.2.0"
 description = "Migration tools."
 authors = ["boonhapus <me@boonhap.us>","Jens Englert <jens.englert@thoughtspot.com>","Misha Beek <misha.beek@thoughtspot.com>"]
 license = "Proprietary"
@@ -26,6 +26,7 @@ thoughtspot-rest-api-v1 = "^1.2.6"
 sqlglot = "^10.4.2"
 texttable = "^1.6.7"
 pip = "^22.3"
+thoughtspot-tml = "^2.0.4"
 
 
 [tool.poetry.dev-dependencies]
