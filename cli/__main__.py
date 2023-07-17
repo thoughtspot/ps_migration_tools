@@ -312,9 +312,11 @@ def sync_users(
         users.rename(columns={"header.name": "name", "header.displayName": "displayName"}, inplace=True)
     except:
         pass
-
+    
+    
     empty_table_list =[['index','username','display name','assigned groups']]
     for usr in track(range(len(users)), description=f'[bold green]Synchronising {sync_type} users'):
+
         username = users['name'].iloc[usr]
         #print(users['displayName'].iloc[usr])
         #print(type(users['displayName'].iloc[usr]))
@@ -322,6 +324,14 @@ def sync_users(
         assigned_groups = pd.json_normalize(ts.users(user_name = username).json())
         ass_grp = assigned_groups['assignedGroups'][0]
         dis_name = assigned_groups['displayName'][0]
+        ####
+        if cfg_name == 'hmr_2':
+            username = users['name'].replace('hmrc.lc','client.hmr.pt', regex=True).iloc[usr]
+        else: 
+            username = users['name'].iloc[usr]
+            pass
+
+        ####
         if validate_only == 'no':
             ctu = ps.create_user(UserName= username,DisplayName= dis_name, group_guids= ass_grp )
             print(str(usr+1) +'. '+ username +' status: '+ str(ctu) )
@@ -487,12 +497,21 @@ def map_users(cfg_name):
     r = ts.login(source_username, source_password)
     r.raise_for_status()
     falcon_users = pd.json_normalize(ts.metadata_user_list().json(),record_path='headers')
+    if cfg_name == 'hmr_2':
+        console.print("Remapping Falcon users to new domain")
+        falcon_users = falcon_users.replace('hmrc.lc','client.hmr.pt', regex=True)
+        console.print(falcon_users[['id','name']].head(10))
+    else: 
+        pass
     (
         falcon_users.to_csv(
             data_dir + "/all_objects/" + "falcon_users.csv", **file_args
         )
     )
+    
     falcon_users = falcon_users[['id','name']]
+    
+    
     ps = HTTPClient(ts_url=dest_ts_url)
     r = ps.login(dest_username, dest_password)
     r.raise_for_status()
@@ -504,6 +523,7 @@ def map_users(cfg_name):
         )
     )
     cloud_users = cloud_users[['id','name']]
+    console.print(cloud_users.head(10))
     user_ids = pd.merge(falcon_users, cloud_users, on="name")
     user_ids.to_csv(data_dir + "/" + "user_id_mapping.csv", **file_args)
     return user_ids
@@ -827,7 +847,7 @@ def gather_deltas(
             if subtype == 'modified':
                 query_string = 'modified > @timestamp & created < @timestamp'
             else:
-                query_string = 'modified > @timestamp'
+                query_string = 'created > @timestamp'
             df = df.query(f"{query_string}")
             console.print(f"Number of {subtype} "+name+ "s: "+ str(len(df)))
             (
@@ -1206,11 +1226,11 @@ def migrate_answers(
     FailedToLoadAnswer = FailedToLoad
     answer_author = df
     if Validate == False:
-        answer_author.to_csv(data_dir + "/info/" + 'answer_author.csv', index=False, encoding='UTF8')
-        df_failed.to_csv(data_dir + "/info/" + 'answer_failed.csv', index=False, encoding='UTF8')
+        answer_author.to_csv(data_dir + "/info/" + f'answer_{migration_mode}_author.csv', index=False, encoding='UTF8')
+        df_failed.to_csv(data_dir + "/info/" + f'answer_{migration_mode}_failed.csv', index=False, encoding='UTF8')
     else:
-        answer_author.to_csv(data_dir + "/info/" + 'answer_author_validation.csv', index=False, encoding='UTF8')
-        df_failed.to_csv(data_dir + "/info/" + 'answer_failed.csv', index=False, encoding='UTF8')
+        answer_author.to_csv(data_dir + "/info/" + f'answer_{migration_mode}_author_validation.csv', index=False, encoding='UTF8')
+        df_failed.to_csv(data_dir + "/info/" + f'answer_{migration_mode}_failed_validation.csv', index=False, encoding='UTF8')
         pass
 
     output_message(f"Finished {mode_type} of " + str(len(answer_author)) + " objects","success")
@@ -1295,6 +1315,11 @@ def migrate_liveboards(
             object_name = object_name.replace("/", "")
             owner_name = NewLiveboardsDf.loc[NewLiveboardsDf['id'] == GUID, 'authorName'].item()
             tml = ts.metadata_tml_export(guid=GUID)
+            # Load from local machine
+            #lb = Liveboard.load(f"{data_dir}/tml_export/liveboards/{migration_mode}/{object_guid}.liveboard.tml")
+            #data = lb.dumps(format_type="JSON")
+            #tml = json.loads(data)
+            # end load from local machine
             logging.info("Export for " + '{}.Liveboard.tml'.format(object_name) + " successfull")
             for i in range(0, 100):
                 for n in range(0, 100):
@@ -1309,6 +1334,7 @@ def migrate_liveboards(
                         pass
             try:
                 Liveboard.loads(json.dumps(tml)).dump(f"{data_dir}/tml_export/liveboards/{migration_mode}/{object_guid}.liveboard.tml")
+                
                 UploadObject = ps.metadata_tml_import(tml, create_new_on_server=create_new, validate_only=Validate)
                 logging.info("Status:")
                 logging.info(UploadObject['object'][0]['response']['status'])
@@ -1351,9 +1377,11 @@ def migrate_liveboards(
     #df_failed.to_csv(data_dir +"/"+ "info" + "/"+'failed_liveboards_mapping.csv', index=False,encoding = 'UTF8')
     liveboard_author = df
     if Validate == False:
-        liveboard_author.to_csv(data_dir + "/" + "info" + "/" + 'liveboard_author.csv', index=False, encoding='UTF8')
-        df_failed.to_csv(data_dir + "/" + "info" + "/" + 'liveboard_author_failed.csv', index=False, encoding='UTF8')
+        liveboard_author.to_csv(data_dir + "/" + "info" + "/" + f'liveboard_{migration_mode}_author.csv', index=False, encoding='UTF8')
+        df_failed.to_csv(data_dir + "/" + "info" + "/" + f'liveboard_{migration_mode}_author_failed.csv', index=False, encoding='UTF8')
     else:
+        liveboard_author.to_csv(data_dir + "/" + "info" + "/" + f'liveboard_{migration_mode}_author_validation.csv', index=False, encoding='UTF8')
+        df_failed.to_csv(data_dir + "/" + "info" + "/" + f'liveboard_{migration_mode}_failed_validation.csv', index=False, encoding='UTF8')
         pass
     if(len(map_failed_guid)) > 0:
         error_handler = 'error'
@@ -1409,8 +1437,8 @@ def migrate_worksheets(
     else:
         create_new = False
         subfolder = 'modified'
-    worksheet_author_temp = pd.DataFrame(map_guid, columns=["old_guid", "new_guid", "owner", "object_name", "object_type"])
-    worksheet_author_temp.to_csv(data_dir + "/info/" + 'worksheet_author.csv', index=False, encoding='UTF8')
+    #worksheet_author_temp = pd.DataFrame(map_guid, columns=["old_guid", "new_guid", "owner", "object_name", "object_type"])
+    #worksheet_author_temp.to_csv(data_dir + "/info/" + 'worksheet_author.csv', index=False, encoding='UTF8')
     NewWorksheetsDf = pd.read_csv(
         data_dir +
         "/" +
@@ -1585,6 +1613,8 @@ def migrate_tables(
         table_author.to_csv(data_dir + "/info/" + 'table_author.csv', index=False, encoding='UTF8')
         df_failed.to_csv(data_dir + "/info/" + 'table_failed.csv', index=False, encoding='UTF8')
     else:
+        table_author.to_csv(data_dir + "/info/" + 'table_author_validation.csv', index=False, encoding='UTF8')
+        df_failed.to_csv(data_dir + "/info/" + 'table_failed_validation.csv', index=False, encoding='UTF8')
         pass
     logging.info("Finished Migration/Validation of " + str(len(table_author)) + " objects")
     if(len(df_failed)) > 0:
@@ -1612,23 +1642,30 @@ def transfer_ownership(
 
     #map_user = pd.read_csv(data_dir +"/"+'mapping_users.csv', header=[0],delimiter = '|')
     object_author_table = (
-        pd.read_csv(data_dir + "/info/" + 'answer_author.csv', header=[0])
+        pd.read_csv(data_dir + "/info/" + 'answer_created_author.csv', header=[0])
     )
+    
+
     
     try:
         logging.info("reading liveboards")
-        liveboard_author = pd.read_csv(data_dir + "/info/" + 'liveboard_author.csv', header=[0])
+        liveboard_author = pd.read_csv(data_dir + "/info/" + 'liveboard_created_author.csv', header=[0])
         object_author_table = pd.concat([object_author_table, liveboard_author], ignore_index=True, sort=False)
         console.print("append liveboard authors to object author table", style="info")
     except Exception:
         console.print("WARNING: liveboard author table not present, please migrate liveboards first", style="warning")
     try:
         logging.info("reading worksheet")
-        worksheet_author = pd.read_csv(data_dir + "/info/" + 'worksheet_author.csv', header=[0])
+        worksheet_author = pd.read_csv(data_dir + "/info/" + 'worksheet_created_author.csv', header=[0])
         object_author_table = pd.concat([object_author_table, worksheet_author], ignore_index=True, sort=False)
         console.print("append worksheet authors to object author table", style="info")
     except Exception:
         console.print("WARNING: worksheet author table not present, please migrate worksheets first", style="warning")
+
+    if cfg_name == 'hmr_2':
+        object_author_table = object_author_table.replace('hmrc.lc','client.hmr.pt', regex=True)
+    else: 
+        pass
 
 
     for i in range(len(object_author_table)):
@@ -1637,7 +1674,7 @@ def transfer_ownership(
         ToUser = object_author_table['owner'].iloc[i]
 
         try:
-            if validate_only == 'yes':
+            if validate_only == 'no':
                 t = ts.transfer_ownership(FromUser, ToUser, ObjGUID)
                 logging.info(str(t))
             else:
@@ -1708,6 +1745,43 @@ def migrate_tags(
             console.print('failed to assign tag for object: ' + object_name, style="error")
         pass
 
+@app.command(name="assign_tags")
+def assign_tags(
+    ctx: typer.Context,
+    cfg_name: str = typer.Option(..., help="Name of config file"),
+    tag: str = typer.Option(..., help="Name of the tag to add"),
+):
+    """
+    Adding new tags to destination cluster and assigning them to the new/modified objects
+    """
+    get_cfg(cfg_name)
+    ps = HTTPClient(ts_url=dest_ts_url)
+    r = ps.login(dest_username, dest_password)
+    r.raise_for_status()
+
+    tagged_objects = (
+        pd.read_csv(
+            data_dir +
+            '/archiver_report.csv',
+            header=[0],
+            delimiter='|') .pipe(
+            comment,
+            msg="loading archiver_report.csv"))
+    for obj_type in ['QUESTION_ANSWER_BOOK','PINBOARD_ANSWER_BOOK']:
+        answer_list = tagged_objects.loc[tagged_objects.type == f"{obj_type}", 'guid'].values.tolist()
+        batch_size = 1    
+        #for i in range(0,10, batch_size):
+        for i in range(0, len(answer_list), batch_size):
+            try:
+                tag_name = tag
+                object_type = [f'{obj_type}']*batch_size
+                tag_names = [tag_name] 
+                r = ps.metadata_assigntag(object_guids=answer_list[i:i+batch_size],object_type=object_type,tag_names=tag_names)
+                console.print('{}: {} Tag assigned to 50 {}: {}'.format(r,tag,obj_type,answer_list[i:i+batch_size]), style="info")
+            except BaseException:
+                console.print('failed to assign tag for object: ', style="error")
+            pass
+
 
 @app.command(name="share_permissions")
 def share_permissions(
@@ -1773,7 +1847,7 @@ def share_permissions(
         """
         if sharing_mode == 'delta':
             new_objects = (
-            pd.read_csv(data_dir + "/" + "info" + "/" + f'{object_type}_author.csv', header=[0], delimiter=',')
+            pd.read_csv(data_dir + "/" + "info" + "/" + f'{object_type}_created_author.csv', header=[0], delimiter=',')
             .pipe(comment, msg="Reading object information")
             .merge(permissions_df, how="inner", left_on='old_guid', right_on='object_guid')
             .merge(user_map, how="left", left_on='shared_to_user_guid', right_on='id_user_old')
