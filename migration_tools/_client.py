@@ -93,6 +93,11 @@ class HTTPClient(httpx.Client):
         p = {"name": user_name}
         r = self.get("/callosum/v1/tspublic/v1/user",params=p)
         return r
+    
+    def table_dependencies(self,  object_guids: List[GUID]) -> httpx.Response:
+        p = { "id": '[' + ','.join(object_guids) + ']'}
+        r = self.get("/callosum/v1/tspublic/v1/dependency/logicaltable", params=p)
+        return r
     ## orgs
     def switch_org(self,orgid) -> httpx.Response:
         d = {"orgid": orgid}

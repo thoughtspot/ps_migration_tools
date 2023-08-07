@@ -247,7 +247,73 @@ def get_permissions(
     #print(permissions)
     console.print(tabulate(permissions[["object_guid", "user_guid", "sharing_mode","object_type"]], headers='keys', tablefmt='psql'))
       
+@ app.command(name="get_dependencies")
+def get_dependencies(
+    ctx: typer.Context,
+    cfg_name: str = typer.Option(..., help="Name of config file"),
+):
+    """
+    Gathers the falcon ddl in table format
+
+    Args:
+        ctx (typer.Context)     :   _description_
+        cfg_name (str, optional):   Name of the configuration file.
+                                    Defaults to typer.Option(..., help="Name of config file").
+    """
+    console.print(f"MIGRATION TOOLS - Gathering Object Dependencies for {cfg_name}", style="bold blue")
+    file_args = {"sep": "|", "index": False, "encoding": "UTF-8"}
+    get_cfg(cfg_name)
+    ts = HTTPClient(ts_url=source_ts_url)
+    r = ts.login(source_username, source_password)
+    r.raise_for_status()
+            
+    metadata_dependency = {
+        "System Table": ts.table_list,
+        "ThoughtSpot View": ts.view_list,
+        "Worksheet": ts.worksheet_list,
+    }
+
+    for name, ts_api_method in metadata_dependency.items():
+        tables = pd.json_normalize(ts_api_method().json(), record_path='headers')
     
+        print(name+":")
+        print(tables[['id','name','type']])
+        path = f"{data_dir}/info/dependencies/{name}"
+        # Check whether the specified path exists or not
+        isExist = os.path.exists(path)
+        if not isExist:
+        # Create a new directory because it does not exist
+            os.makedirs(path)
+            print(f"The new {name} directory is created!")
+        
+        table_list = tables['id']
+        for guid in table_list:
+            tbl_dep = ts.table_dependencies([guid]).json()
+            try:
+                dependencies = pd.json_normalize(tbl_dep[guid])
+                count = 0 
+                try:
+                    dependencies['PINBOARD_ANSWER_BOOK']
+                    count = count +0
+                except:
+                    count = count + 1
+                try:
+                    dependencies['QUESTION_ANSWER_BOOK']
+                    count = count +0
+                except:
+                    count = count +1
+                try: 
+                    dependencies['LOGICAL_TABLE']
+                    count = count +0
+                except: 
+                    count =  count + 1 
+                #print(count)
+                if count == 3:
+                    ts.metadata_assigntag(object_guids=['{}'.format(guid)],object_type=[f'LOGICAL_TABLE'],tag_names=['NoDependency'])
+                else:
+                    dependencies.to_csv(data_dir + f"/info/dependencies/{name}/{guid}_dependencies.csv")
+            except:
+                pass    
 @ app.command(name="get_orgs")
 def get_orgs(
     ctx: typer.Context,
