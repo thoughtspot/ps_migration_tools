@@ -9,6 +9,7 @@ version = "1.2.0"
 description = "Migration tools."
 authors = ["boonhapus <me@boonhap.us>","Jens Englert <jens.englert@thoughtspot.com>","Misha Beek <misha.beek@thoughtspot.com>"]
 license = "Proprietary"
+trusted-host = ["pypi.org", "pypi.python.org", "files.pythonhosted.org"]
 include = [
     { path = "cli" },
 ]

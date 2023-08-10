@@ -24,6 +24,7 @@ from rich.table import Table
 from rich.progress import Progress
 from time import sleep
 import requests
+import yaml
 from tabulate import tabulate
 from typer import Argument as A_, Option as O_
 try:
@@ -34,6 +35,7 @@ try:
     from thoughtspot_tml import Answer
     from thoughtspot_tml import Table as tbl_tml
     from thoughtspot_tml.utils import determine_tml_type
+    #from thoughtspot_tml.utils import determine_tml_type
 except:
     print('thoughtspot_tml couldn ot be imported please install the package by running: pip install "thoughtspot_tml @ https://github.com/thoughtspot/thoughtspot_tml/archive/v2.0.1.zip"')
 urllib3.disable_warnings()
@@ -1098,7 +1100,39 @@ def create_groups(
             print(str(e) + Name)
             pass
     console.print(table)
+#ORGS
+def orgs_workflow(from_org,to_org):
+    if from_org != 'None':
+            
+            
+        try:
+                
+            orgs_json = pd.json_normalize(ts.get_orgs().json(),record_path='orgs')
+                
+            console.print(tabulate(orgs_json[['orgId','orgName']], headers='keys', tablefmt='psql'))
+            org_guid = orgs_json.loc[orgs_json.orgName == from_org,'orgId'].values[0]
+            console.print(f"✅ Switching source context to {from_org}",style="success")
+            ts.switch_org(orgid=org_guid)
+        except Exception as e:
+            print(str(e))
+            console.print(f"⛔️ Org {from_org} does not exist on this cluster, please choose another Org",style="error")
+    else:
+        pass
+        
+    if to_org != 'None':
+            
+        #console.print(orgs_json)
+        try:
+            orgs_json = pd.json_normalize(ps.get_orgs().json(),record_path='orgs')
+            org_guid = orgs_json.loc[orgs_json.orgName == to_org,'orgId'].values[0]
+            console.print(f"✅ Switching target context to {to_org}",style="success")
+            ps.switch_org(orgid=org_guid)
+        except:
+            console.print(f"⛔️ Org {to_org} does not exist on this cluster, please choose another Org",style="error")
+    else:
+        pass
 
+# End Orgs
 
 @app.command(name="migrate_answers")
 def migrate_answers(
@@ -1110,7 +1144,7 @@ def migrate_answers(
     from_org: str = O_('None', help='(optional) specify the source org '),
     to_org: str = O_('None', help='(optional) specify the target org '),
     tag_name: str = O_('migration_tools', help='(optional) specify a tagname for new objects (default: migration_tools)'),
-    #data_dir: pathlib.Path = typer.Option(..., help="directory to read input data from"),
+    import_only: str = O_('false', help='(optional) set this value to true if you want to import files from local directory'),
 ):  
     """
     Migrates all created/modified answers from source to destination cluster
@@ -1123,25 +1157,6 @@ def migrate_answers(
     
     get_cfg(cfg_name)
     print("Starting Migration of {} answers in validation mode: {}".format(migration_mode, validation_mode))
-    """
-    ts: TSRestApiV1 = TSRestApiV1(server_url=source_ts_url)
-    ts.requests_session.verify = False
-    try:
-        ts.session_login(username=source_username, password=source_password)
-        console.print("successfully logged in to " + source_ts_url, style="success")
-    except requests.exceptions.HTTPError as e:
-        console.print(e, style="error")
-        print(e.response.content)
-
-    ps: TSRestApiV1 = TSRestApiV1(server_url=dest_ts_url)
-    ps.requests_session.verify = False
-    try:
-        ps.session_login(username=dest_username, password=dest_password)
-        console.print("successfully logged in to " + dest_ts_url, style="success")
-    except requests.exceptions.HTTPError as e:
-        console.print(e, style="error")
-        print(e.response.content)
-    """
     ts = HTTPClient(ts_url=source_ts_url)
     r = ts.login(source_username, source_password)
     r.raise_for_status()
@@ -1149,16 +1164,14 @@ def migrate_answers(
     ps = HTTPClient(ts_url=dest_ts_url)
     r = ps.login(dest_username, dest_password)
     r.raise_for_status()
-
-    #ORGS
+    #Start orgs 
     if from_org != 'None':
-        
-        #console.print(orgs_json)
+            
+            
         try:
-            #print("TEST")
-            #print(ts.get_orgs().json())
+                
             orgs_json = pd.json_normalize(ts.get_orgs().json(),record_path='orgs')
-            #print(orgs_json)
+                
             console.print(tabulate(orgs_json[['orgId','orgName']], headers='keys', tablefmt='psql'))
             org_guid = orgs_json.loc[orgs_json.orgName == from_org,'orgId'].values[0]
             console.print(f"✅ Switching source context to {from_org}",style="success")
@@ -1168,14 +1181,12 @@ def migrate_answers(
             console.print(f"⛔️ Org {from_org} does not exist on this cluster, please choose another Org",style="error")
     else:
         pass
-    
-    if to_org != 'None':
         
+    if to_org != 'None':
+            
         #console.print(orgs_json)
         try:
             orgs_json = pd.json_normalize(ps.get_orgs().json(),record_path='orgs')
-            #print(orgs_json)
-            #console.print(tabulate(orgs_json[['orgId','orgName']], headers='keys', tablefmt='psql'))
             org_guid = orgs_json.loc[orgs_json.orgName == to_org,'orgId'].values[0]
             console.print(f"✅ Switching target context to {to_org}",style="success")
             ps.switch_org(orgid=org_guid)
@@ -1183,9 +1194,7 @@ def migrate_answers(
             console.print(f"⛔️ Org {to_org} does not exist on this cluster, please choose another Org",style="error")
     else:
         pass
-
-    # End Orgs
-
+    # End Orgs 
     if validation_mode == 'False':
         Validate = False
         _import_policy ='ALL_OR_NONE'
@@ -1228,37 +1237,44 @@ def migrate_answers(
         try:
             object_name = NewAnswersDf.loc[NewAnswersDf['id'] == GUID, 'name'].item()
             object_type = 'QUESTION_ANSWER_BOOK'
-            #print(object_name)
+            
             owner_name = NewAnswersDf.loc[NewAnswersDf['id'] == GUID, 'authorName'].item()
-            #tml = ts.metadata_tml_export(guid=GUID)
-            tml = ts.metadata_tml_export(guid=[GUID])
-            tml = tml.json()
-            tml = tml['object'][0]['edoc']
-            tml = json.loads(tml)
-            #console.log("Export for " + '{}.answer.tml'.format(object_name) + " successfull", style="info")
-            logging.info("Export for " + '{}.answer.tml'.format(object_name) + " successfull")
-            for i in range(0, 10):
-                try:
-                    if tml['answer']['table']['table_columns'][i]['headline_aggregation'] == 'TABLE_AGGR':
-                        tml['answer']['table']['table_columns'][i]['headline_aggregation'] = 'SUM'
-                    else:
+            if import_only == 'false':
+                tml = ts.metadata_tml_export(guid=[GUID])
+                tml = tml.json()
+                tml = tml['object'][0]['edoc']
+                tml = json.loads(tml)
+                
+                logging.info("Export for " + '{}.answer.tml'.format(object_name) + " successfull")
+                for i in range(0, 20):
+                    try:
+                        if tml['answer']['table']['table_columns'][i]['headline_aggregation'] == 'TABLE_AGGR':
+                            tml['answer']['table']['table_columns'][i]['headline_aggregation'] = 'SUM'
+                        else:
+                            pass
+                    except BaseException:
                         pass
-                except BaseException:
-                    pass
-            Answer.loads(json.dumps(tml)).dump(f"{data_dir}/tml_export/answers/{migration_mode}/{object_guid}.answer.tml")
-            #UploadObject = ps.metadata_tml_import(tml, create_new_on_server=create_new, validate_only=Validate)
+                Answer.loads(json.dumps(tml)).dump(f"{data_dir}/tml_export/answers/{migration_mode}/{object_guid}.answer.tml")
+            elif import_only == 'true': 
+                ans = Answer.load(path=f"{data_dir}/tml_export/answers/{migration_mode}/{object_guid}.answer.tml")
+                data = ans.dumps(format_type="JSON")
+                tml = json.loads(data)
+                pass
+            else: 
+                console.print("specify a valid value for the parameter import-only (true/false)")
+                pass
+            
             UploadObject = ps.metadata_tml_import(tml=[tml], import_policy= _import_policy, force_create= create_new)
             UploadObject = UploadObject.json()
-            #print("Status:")
+            
             logging.info(UploadObject['object'][0]['response']['status'])
-            #print("New GUID assigned:")
-            #print(UploadObject['object'][0]['response']['header']['id_guid'])
+            
             NewObjectsList.append(UploadObject['object'][0]['response']['header']['id_guid'])
             Owner = UploadObject['object'][0]['response']['header']['owner_guid']
             OwnerList.append(Owner)
             new_guid = UploadObject['object'][0]['response']['header']['id_guid']
             map_guid.append([object_guid, new_guid, owner_name, object_name, object_type])
-            #tag_name = 'migration_tools'
+            
 
             
 
@@ -1275,17 +1291,13 @@ def migrate_answers(
                 pass
         except Exception as e:
             logging.info("couldn't import " + object_name)
-            #print(str(e))
+            
             FailedToLoad.append(object_name + '_' + GUID)
             object_name = object_name.replace("/", "")
-            #print(object_name)
-            #dictionary_data = tml
+            
             error_code = str(e) + str(UploadObject['object'][0]['response']['status'])
             map_failed_guid.append([object_guid, owner_name, object_name, object_type, error_code])
             table.add_row( object_guid,  object_name, '❌')
-            #a_file = open(".//failed_answers//{}.Answer.tml_{}".format(object_name,GUID), "wb")
-            #pickle.dump(dictionary_data, a_file)
-            # a_file.close()
             pass
     df = pd.DataFrame(map_guid, columns=["old_guid", "new_guid", "owner", "object_name", "object_type"])
     df_failed = pd.DataFrame(map_failed_guid, columns=["old_guid", "owner", "object_name", "object_type","error_code"])
@@ -1313,6 +1325,10 @@ def migrate_liveboards(
     cfg_name: str = typer.Option(..., help="Name of config file"),
     migration_mode: str = typer.Option(...,help="specify if you want to migrate modified or created objects values: created/modified"),
     validation_mode: str = typer.Option(..., help="run in validation mode only True/False"),
+    tag_name: str = O_('migration_tools', help='(optional) specify a tagname for new objects (default: migration_tools)'),
+    from_org: str = O_('None', help='(optional) specify the source org '),
+    to_org: str = O_('None', help='(optional) specify the target org '),
+    import_only: str = O_('false', help='(optional) specify if you want to import from local directory or directly from cluster'),
 ):
     """
     Migrates all created/modified liveboards from source to destination cluster
@@ -1324,6 +1340,7 @@ def migrate_liveboards(
     table.add_column('Status', justify='center',width=30)
     get_cfg(cfg_name)
     print("Starting Migration of {} liveboards in validation mode: {}".format(migration_mode, validation_mode))
+    """ 
     ts: TSRestApiV1 = TSRestApiV1(server_url=source_ts_url)
     ts.requests_session.verify = False
     try:
@@ -1341,11 +1358,54 @@ def migrate_liveboards(
     except requests.exceptions.HTTPError as e:
         console.print(e, style="error")
         print(e.response.content)
+    """
+    ts = HTTPClient(ts_url=source_ts_url)
+    r = ts.login(source_username, source_password)
+    r.raise_for_status()
+
+    ps = HTTPClient(ts_url=dest_ts_url)
+    r = ps.login(dest_username, dest_password)
+    r.raise_for_status()
+    #Start orgs 
+    if from_org != 'None':
+            
+            
+        try:
+                
+            orgs_json = pd.json_normalize(ts.get_orgs().json(),record_path='orgs')
+                
+            console.print(tabulate(orgs_json[['orgId','orgName']], headers='keys', tablefmt='psql'))
+            org_guid = orgs_json.loc[orgs_json.orgName == from_org,'orgId'].values[0]
+            console.print(f"✅ Switching source context to {from_org}",style="success")
+            ts.switch_org(orgid=org_guid)
+        except Exception as e:
+            print(str(e))
+            console.print(f"⛔️ Org {from_org} does not exist on this cluster, please choose another Org",style="error")
+    else:
+        pass
+        
+    if to_org != 'None':
+            
+        #console.print(orgs_json)
+        try:
+            orgs_json = pd.json_normalize(ps.get_orgs().json(),record_path='orgs')
+            org_guid = orgs_json.loc[orgs_json.orgName == to_org,'orgId'].values[0]
+            console.print(f"✅ Switching target context to {to_org}",style="success")
+            ps.switch_org(orgid=org_guid)
+        except:
+            console.print(f"⛔️ Org {to_org} does not exist on this cluster, please choose another Org",style="error")
+    else:
+        pass
+    # End Orgs 
 
     if validation_mode == 'False':
         Validate = False
+        _import_policy ='ALL_OR_NONE'
+        mode_type= 'Migration'
     else:
         Validate = True
+        _import_policy ='VALIDATE_ONLY'
+        mode_type = 'Validation'
     if migration_mode == 'created':
         create_new = True
         subfolder = 'created'
@@ -1363,7 +1423,6 @@ def migrate_liveboards(
         header=[0],
         delimiter='|')
     LiveboardList = NewLiveboardsDf['id'].to_list()
-    #LiveboardList = LiveboardList[:8]
     NewObjectsList = []
     OwnerList = []
     FailedToLoad = []
@@ -1380,12 +1439,33 @@ def migrate_liveboards(
             object_name = NewLiveboardsDf.loc[NewLiveboardsDf['id'] == GUID, 'name'].item()
             object_name = object_name.replace("/", "")
             owner_name = NewLiveboardsDf.loc[NewLiveboardsDf['id'] == GUID, 'authorName'].item()
-            tml = ts.metadata_tml_export(guid=GUID)
-            # Load from local machine
-            #lb = Liveboard.load(f"{data_dir}/tml_export/liveboards/{migration_mode}/{object_guid}.liveboard.tml")
-            #data = lb.dumps(format_type="JSON")
-            #tml = json.loads(data)
-            # end load from local machine
+            if import_only == 'false':
+                tml = ts.metadata_tml_export(guid=[GUID])
+                
+                tml = tml.json()
+                #tml_string = tml[0]['edoc']
+                #tml_obj = Liveboard.loads(tml_string)
+                #tml_obj.dump(path=f"{data_dir}/tml_export/liveboards/{migration_mode}/{object_guid}.liveboard.tml")
+                tml = tml['object'][0]['edoc']
+                
+                
+                tml = json.loads(tml)
+                
+                with open(f"{data_dir}/tml_export/liveboards/{migration_mode}/{object_guid}.liveboard.tml", "w") as yaml_file:
+                    json.dump(tml, yaml_file)
+
+                #Liveboard.loads(json.dumps(tml)).dump(f"{data_dir}/tml_export/liveboards/{migration_mode}/{object_guid}.liveboard.tml")
+            elif import_only == 'true':
+                # Load from local machine
+                #lb = Liveboard.load(path=f"{data_dir}/tml_export/liveboards/{migration_mode}/{object_guid}.liveboard.tml")
+                with open(f"{data_dir}/tml_export/liveboards/{migration_mode}/{object_guid}.liveboard.tml", "r") as json_file:
+                    tml = json.load(json_file)
+                #data = lb.dumps(format_type="JSON")
+                #tml = json.loads(data)
+                # end load from local machine
+            else: 
+                console.print(f"{object_guid} not found in ./tml/export/liveboards")
+                pass
             logging.info("Export for " + '{}.Liveboard.tml'.format(object_name) + " successfull")
             for i in range(0, 100):
                 for n in range(0, 100):
@@ -1399,9 +1479,10 @@ def migrate_liveboards(
                     except BaseException:
                         pass
             try:
-                Liveboard.loads(json.dumps(tml)).dump(f"{data_dir}/tml_export/liveboards/{migration_mode}/{object_guid}.liveboard.tml")
+                #Liveboard.loads(json.dumps(tml)).dump(f"{data_dir}/tml_export/liveboards/{migration_mode}/{object_guid}.liveboard.tml")
                 
-                UploadObject = ps.metadata_tml_import(tml, create_new_on_server=create_new, validate_only=Validate)
+                UploadObject = ps.metadata_tml_import(tml=[tml], import_policy= _import_policy, force_create= create_new)
+                UploadObject = UploadObject.json()
                 logging.info("Status:")
                 logging.info(UploadObject['object'][0]['response']['status'])
                 logging.info("New GUID assigned:")
@@ -1422,6 +1503,7 @@ def migrate_liveboards(
                         " successfull")
                 else:
                     ps.metadata_assigntag(object_guids=['{}'.format(new_guid)],object_type=[f'{object_type}'],tag_names=[tag_name,migration_mode])
+                    #ps.metadata_assigntag(object_guids=['{}'.format(new_guid)],object_type=[f'{object_type}'],tag_names=[tag_name,migration_mode])
                     logging.info("Imported " + '{}.Liveboard.tml'.format(object_name) + " successfully")
             except Exception as e:
                 logging.info("couldn't import " + object_name)
@@ -1463,6 +1545,9 @@ def migrate_worksheets(
     cfg_name: str = typer.Option(..., help="Name of config file"),
     migration_mode: str = typer.Option(...,help="specify if you want to migrate modified or created objects values: created/modified"),
     validation_mode: str = typer.Option(..., help="run in validation mode only True/False"),
+    from_org: str = O_('None', help='(optional) specify the source org '),
+    to_org: str = O_('None', help='(optional) specify the target org '),
+    import_only: str = O_('false', help='(optional) specify if you want to import from local directory or directly from cluster'),
     #data_dir: pathlib.Path = typer.Option(..., help="directory to read input data from"),
 ):
     """
@@ -1475,6 +1560,7 @@ def migrate_worksheets(
     table.add_column('Status', justify='center',width=30)
     get_cfg(cfg_name)
     print("Starting Migration of {} worksheets in validation mode: {}".format(migration_mode, validation_mode))
+    """
     ts: TSRestApiV1 = TSRestApiV1(server_url=source_ts_url)
     ts.requests_session.verify = False
     try:
@@ -1492,11 +1578,53 @@ def migrate_worksheets(
     except requests.exceptions.HTTPError as e:
         print(e)
         print(e.response.content)
+    """
+    ts = HTTPClient(ts_url=source_ts_url)
+    r = ts.login(source_username, source_password)
+    r.raise_for_status()
 
+    ps = HTTPClient(ts_url=dest_ts_url)
+    r = ps.login(dest_username, dest_password)
+    r.raise_for_status()
+    #Start orgs 
+    if from_org != 'None':
+            
+            
+        try:
+                
+            orgs_json = pd.json_normalize(ts.get_orgs().json(),record_path='orgs')
+                
+            console.print(tabulate(orgs_json[['orgId','orgName']], headers='keys', tablefmt='psql'))
+            org_guid = orgs_json.loc[orgs_json.orgName == from_org,'orgId'].values[0]
+            console.print(f"✅ Switching source context to {from_org}",style="success")
+            ts.switch_org(orgid=org_guid)
+        except Exception as e:
+            print(str(e))
+            console.print(f"⛔️ Org {from_org} does not exist on this cluster, please choose another Org",style="error")
+    else:
+        pass
+        
+    if to_org != 'None':
+            
+        #console.print(orgs_json)
+        try:
+            orgs_json = pd.json_normalize(ps.get_orgs().json(),record_path='orgs')
+            org_guid = orgs_json.loc[orgs_json.orgName == to_org,'orgId'].values[0]
+            console.print(f"✅ Switching target context to {to_org}",style="success")
+            ps.switch_org(orgid=org_guid)
+        except:
+            console.print(f"⛔️ Org {to_org} does not exist on this cluster, please choose another Org",style="error")
+    else:
+        pass
+    # End Orgs 
     if validation_mode == 'False':
         Validate = False
+        _import_policy ='ALL_OR_NONE'
+        mode_type= 'Migration'
     else:
         Validate = True
+        _import_policy ='VALIDATE_ONLY'
+        mode_type = 'Validation'
     if migration_mode == 'created':
         create_new = True
         subfolder = 'created'
@@ -1524,10 +1652,17 @@ def migrate_worksheets(
             object_type = 'LOGICAL_TABLE'
             object_name = NewWorksheetsDf.loc[NewWorksheetsDf['id'] == GUID, 'name'].item()
             owner_name = NewWorksheetsDf.loc[NewWorksheetsDf['id'] == GUID, 'authorName'].item()
-            tml = ts.metadata_tml_export(guid=GUID)
+            #tml = ts.metadata_tml_export(guid=GUID)
+            tml = ts.metadata_tml_export(guid=[GUID])
+            tml = tml.json()
+            tml = tml['object'][0]['edoc']
+            tml = json.loads(tml)
             logging.info("Export for " + '{}.Worksheet.tml'.format(object_name) + " successfull")
-            Worksheet.loads(json.dumps(tml)).dump(f"{data_dir}/tml_export/worksheets/{migration_mode}/{object_name}_{object_guid}.worksheet.tml")
-            UploadObject = ps.metadata_tml_import(tml, create_new_on_server=create_new, validate_only=Validate)
+            Worksheet.loads(json.dumps(tml)).dump(f"{data_dir}/tml_export/worksheets/{migration_mode}/{object_guid}.worksheet.tml")
+            #UploadObject = ps.metadata_tml_import(tml, create_new_on_server=create_new, validate_only=Validate)
+            UploadObject = ps.metadata_tml_import(tml=[tml], import_policy= _import_policy, force_create= create_new)
+            UploadObject = UploadObject.json()
+            #console.print(UploadObject)
             
             
             logging.info(UploadObject['object'][0]['response']['status'])
@@ -1559,10 +1694,10 @@ def migrate_worksheets(
     df_failed = pd.DataFrame(FailedToLoad, columns=["old_guid", "owner", "object_name", "object_type","error_code"])
     worksheet_author = df
     if Validate == False:
-        worksheet_author.to_csv(data_dir + "/info/" + 'worksheet_author.csv', index=False, encoding='UTF8')
-        df_failed.to_csv(data_dir + "/info/" + 'worksheet_failed.csv', index=False, encoding='UTF8')
+        worksheet_author.to_csv(data_dir + "/info/" + f'worksheet_{migration_mode}_author.csv', index=False, encoding='UTF8')
+        df_failed.to_csv(data_dir + "/" + "info" + "/" + f'liveboard_{migration_mode}_failed.csv', index=False, encoding='UTF8')
     else:
-        df_failed.to_csv(data_dir + "/info/" + 'worksheet_failed.csv', index=False, encoding='UTF8')
+        df_failed.to_csv(data_dir + "/" + "info" + "/" + f'liveboard_{migration_mode}_failed_validation.csv', index=False, encoding='UTF8')
         pass
     logging.info("Finished Migration/Validation of " + str(len(worksheet_author)) + " objects")
     if(len(df_failed)) > 0:
@@ -1728,10 +1863,7 @@ def transfer_ownership(
     except Exception:
         console.print("WARNING: worksheet author table not present, please migrate worksheets first", style="warning")
 
-    if cfg_name == 'hmr_2':
-        object_author_table = object_author_table.replace('hmrc.lc','client.hmr.pt', regex=True)
-    else: 
-        pass
+    
 
 
     for i in range(len(object_author_table)):
