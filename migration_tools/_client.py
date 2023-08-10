@@ -280,5 +280,24 @@ class HTTPClient(httpx.Client):
         }
         r = self.get("/callosum/v1/tspublic/v1/metadata/listas", params=p)
         return r
+    
+    def get_db(self) -> httpx.Response:
+        r = self.get("/callosum/v1/tspublic/v1/database/databases")
+        return r
+    
+    def get_schema(self,database) -> httpx.Response:
+        p = {"database": database}
+        r = self.get("/callosum/v1/tspublic/v1/database/schemas",params=p)
+        return r
+
+    def get_tables(self,database,schema) -> httpx.Response:
+        p = {"database": database,"schema": schema}
+        r = self.get("/callosum/v1/tspublic/v1/database/tables",params=p)
+        return r
+    
+    def get_table_details(self,database,schema,table) -> httpx.Response:
+        p = {"database": database,"schema": schema,"table": table}
+        r = self.get("/callosum/v1/tspublic/v1/database/getTableDetail",params=p)
+        return r
 
 

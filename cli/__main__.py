@@ -1036,7 +1036,51 @@ def gather_deltas7(
             .to_csv(data_dir + "/"  + f"/{subtype}/" + f"{name}_{subtype}.csv", **file_args)
             )
         
+@ app.command(name="falcon_ddl")
+def falcon_ddl(
+    ctx: typer.Context,
+    cfg_name: str = typer.Option(..., help="Name of config file"),
+):
+    """
+    Gathers the falcon ddl in table format
 
+    Args:
+        ctx (typer.Context)     :   _description_
+        cfg_name (str, optional):   Name of the configuration file.
+                                    Defaults to typer.Option(..., help="Name of config file").
+    """
+    console.print(f"MIGRATION TOOLS - Gathering Falcon DDL for {cfg_name}", style="bold blue")
+    pd.options.mode.chained_assignment = None
+    file_args = {"sep": "|", "index": False, "encoding": "UTF-8"}
+    get_cfg(cfg_name)
+    ts = HTTPClient(ts_url=source_ts_url)
+    r = ts.login(source_username, source_password)
+    r.raise_for_status()
+    db_data = ts.get_db().json()
+    databaselist = []
+    for db in db_data:
+        schema = ts.get_schema(db).json()
+        for sc in schema:
+            table = ts.get_tables(db,sc).json()
+            for tbl in table:
+                databaselist.append([db,sc,tbl])
+    database_df = pd.DataFrame(databaselist, columns=["database",  "schema", "table"])
+    
+    ddl = pd.DataFrame()
+    for tbl in range(len(database_df)):
+        raw = ts.get_table_details(database_df["database"].iloc[tbl],database_df["schema"].iloc[tbl],database_df["table"].iloc[tbl]).json()
+        raw_norm = pd.json_normalize(raw,record_path='column')
+        columns = raw_norm[['data_type','id.guid','id.name']]
+        database = database_df["database"].iloc[tbl]
+        schema = database_df["schema"].iloc[tbl]
+        table = database_df["table"].iloc[tbl]
+        columns['database'] = database
+        columns['schema'] = schema
+        columns['table'] = table
+        data = [ddl,columns]
+        ddl = pd.concat(data)
+    ddl.to_csv(data_dir + "/info/" +'falcon_ddl.csv', index=False, encoding='UTF8')
+    
 @app.command(name="create_groups")
 def create_groups(
     ctx: typer.Context,
