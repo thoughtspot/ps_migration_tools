@@ -85,8 +85,9 @@ class HTTPClient(httpx.Client):
         r = self.post("/callosum/v1/tspublic/v1/user/transfer/ownership", params=p)
         return r
 
-    def groups(self) -> httpx.Response:
-        r = self.get("/callosum/v1/tspublic/v1/group")
+    def groups(self,group_name) -> httpx.Response:
+        p = {"name": group_name}
+        r = self.get("/callosum/v1/tspublic/v1/group",params = p)
         return r
 
     def users(self,user_name) -> httpx.Response:
@@ -221,8 +222,8 @@ class HTTPClient(httpx.Client):
         r = self.post("/callosum/v1/tspublic/v1/user", data=d)
         return r
 
-    def create_group(self, UserName: str,DisplayName: str ,DESC: str) -> httpx.Response:
-        d = {'name': UserName,'display_name': DisplayName,'description': DESC,'grouptype': 'LOCAL_GROUP','visibility': 'DEFAULT'}
+    def create_group(self, UserName: str,DisplayName: str ,DESC: str, privileges: List[str]) -> httpx.Response:
+        d = {'name': UserName,'display_name': DisplayName,'description': DESC,'grouptype': 'LOCAL_GROUP','privileges':'[' + ','.join(privileges) + ']' ,'visibility': 'DEFAULT'}
         r = self.post("/callosum/v1/tspublic/v1/group", data=d)
         return r
 

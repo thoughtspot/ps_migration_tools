@@ -26,6 +26,7 @@ from time import sleep
 import requests
 import yaml
 from tabulate import tabulate
+import csv
 from typer import Argument as A_, Option as O_
 try:
     # from thoughtspot_tml.utils import determine_tml_type
@@ -145,6 +146,9 @@ def setup_folder_structure(data_dir, cfg_name):
         Path(data_dir).joinpath("output/delta_migrations/tml_export/answers"),
         Path(data_dir).joinpath("output/delta_migrations/tml_export/liveboards"),
         Path(data_dir).joinpath("output/delta_migrations/tml_export/worksheets"),
+        Path(data_dir).joinpath("output/delta_migrations/tml_export/tables"),
+        Path(data_dir).joinpath("output/delta_migrations/tml_export/created"),
+        Path(data_dir).joinpath("output/delta_migrations/tml_export/tables/modified"),
         Path(data_dir).joinpath(
             "output/delta_migrations/tml_export/answers/created"),
         Path(data_dir).joinpath(
@@ -350,6 +354,8 @@ def sync_users(
     cfg_name: str = typer.Option(..., help="Name of config file"),
     validate_only: str = typer.Option(..., help="yes/no"),
     sync_type: str = typer.Option(..., help="Users that you want to sync (all/created"),
+    from_org: str = O_('None', help='(optional) specify the source org '),
+    to_org: str = O_('None', help='(optional) specify the target org '),
 ):
     """
     Creating missing users on the destination cluster
@@ -374,6 +380,38 @@ def sync_users(
     ps = HTTPClient(ts_url=dest_ts_url)
     r = ps.login(dest_username, dest_password)
     r.raise_for_status()
+
+    #Start orgs 
+    if from_org != 'None':
+            
+            
+        try:
+                
+            orgs_json = pd.json_normalize(ts.get_orgs().json(),record_path='orgs')
+                
+            console.print(tabulate(orgs_json[['orgId','orgName']], headers='keys', tablefmt='psql'))
+            org_guid = orgs_json.loc[orgs_json.orgName == from_org,'orgId'].values[0]
+            console.print(f"✅ Switching source context to {from_org}",style="success")
+            ts.switch_org(orgid=org_guid)
+        except Exception as e:
+            print(str(e))
+            console.print(f"⛔️ Org {from_org} does not exist on this cluster, please choose another Org",style="error")
+    else:
+        pass
+        
+    if to_org != 'None':
+            
+        #console.print(orgs_json)
+        try:
+            orgs_json = pd.json_normalize(ps.get_orgs().json(),record_path='orgs')
+            org_guid = orgs_json.loc[orgs_json.orgName == to_org,'orgId'].values[0]
+            console.print(f"✅ Switching target context to {to_org}",style="success")
+            ps.switch_org(orgid=org_guid)
+        except:
+            console.print(f"⛔️ Org {to_org} does not exist on this cluster, please choose another Org",style="error")
+    else:
+        pass
+    # End Orgs 
     # Get Data
     t = Texttable()
     try:
@@ -390,21 +428,38 @@ def sync_users(
         #print(type(users['displayName'].iloc[usr]))
         #dis_name = users['displayName'].iloc[usr]
         assigned_groups = pd.json_normalize(ts.users(user_name = username).json())
-        ass_grp = assigned_groups['assignedGroups'][0]
-        dis_name = assigned_groups['displayName'][0]
+        try:
+            ass_grp = assigned_groups['assignedGroups'][0]
+        except:
+            ass_grp = []
+        try:
+            dis_name = assigned_groups['displayName'][0]
+        except:
+            dis_name = 'empty'
+            print(assigned_groups)
         ####
-        if cfg_name == 'hmr_2':
-            username = users['name'].replace('hmrc.lc','client.hmr.pt', regex=True).iloc[usr]
-        else: 
-            username = users['name'].iloc[usr]
-            pass
+        csv_file_path = f"{data_dir}/group_id_mapping.csv"
+
+        # Step 1: Read the CSV file and create a mapping
+        mapping = {}
+        with open(csv_file_path, 'r') as csv_file:
+            csv_reader = csv.reader(csv_file,delimiter='|')
+            for row in csv_reader:
+                id_group_old, group_name, id_group_new = row
+                mapping[id_group_old] = id_group_new
+                
+
+        # Step 2: Replace values in the source list
+        new_ass_grp = [mapping[item] if item in mapping else item for item in ass_grp]
+
 
         ####
         if validate_only == 'no':
-            ctu = ps.create_user(UserName= username,DisplayName= dis_name, group_guids= ass_grp )
-            print(str(usr+1) +'. '+ username +' status: '+ str(ctu) )
+            ctu = ps.create_user(UserName= username,DisplayName= dis_name, group_guids= new_ass_grp )
+            #print(str(usr+1) +'. '+ username +' status: '+ str(ctu) )
+            empty_table_list.append([usr+1,username, dis_name,new_ass_grp])
         else:
-            empty_table_list.append([usr+1,username, dis_name,ass_grp])
+            empty_table_list.append([usr+1,username, dis_name,new_ass_grp])
             
             #print(str(usr+1) +'. '+ username + ' ---> displayName: '+ dis_name)
     t.add_rows(empty_table_list)   
@@ -596,12 +651,25 @@ def map_users(cfg_name):
     user_ids.to_csv(data_dir + "/" + "user_id_mapping.csv", **file_args)
     return user_ids
 
-def map_groups(cfg_name):
+def map_groups(cfg_name,ts_org,ps_org):
     get_cfg(cfg_name)
     file_args = {"sep": "|", "index": False, "encoding": "UTF-8"}
     ts = HTTPClient(ts_url=source_ts_url)
     r = ts.login(source_username, source_password)
     r.raise_for_status()
+    if ts_org != 'None':
+        
+        #console.print(orgs_json)
+        try:
+            orgs_json = pd.json_normalize(ts.get_orgs().json(),record_path='orgs')
+            console.print(tabulate(orgs_json[['orgId','orgName']], headers='keys', tablefmt='psql'))
+            org_guid = orgs_json.loc[orgs_json.orgName == ts_org,'orgId'].values[0]
+            console.print(f"✅ Switching context to {ts_org}",style="success")
+            ts.switch_org(orgid=org_guid)
+        except:
+            console.print(f"⛔️ Org {ts_org} does not exist on this cluster, please choose another Org",style="error")
+    else:
+        pass
     falcon_groups = pd.json_normalize(ts.metadata_group_list().json(),record_path='headers')
     (
         falcon_groups.to_csv(
@@ -612,6 +680,20 @@ def map_groups(cfg_name):
     ps = HTTPClient(ts_url=dest_ts_url)
     r = ps.login(dest_username, dest_password)
     r.raise_for_status()
+
+    if ps_org != 'None':
+        
+        #console.print(orgs_json)
+        try:
+            orgs_json = pd.json_normalize(ps.get_orgs().json(),record_path='orgs')
+            console.print(tabulate(orgs_json[['orgId','orgName']], headers='keys', tablefmt='psql'))
+            org_guid = orgs_json.loc[orgs_json.orgName == ps_org,'orgId'].values[0]
+            console.print(f"✅ Switching context to {ps_org}",style="success")
+            ps.switch_org(orgid=org_guid)
+        except:
+            console.print(f"⛔️ Org {ps_org} does not exist on this cluster, please choose another Org",style="error")
+    else:
+        pass
     file_args = {"sep": "|", "index": False, "encoding": "UTF-8"}
     cloud_groups = pd.json_normalize(ps.metadata_group_list().json(),record_path='headers')
     (
@@ -795,13 +877,15 @@ def gather_deltas(
     ctx: typer.Context,
     cfg_name: str = typer.Option(..., help="Name of config file"),
     backup_date: dt.datetime = typer.Option("2012-11-01", help="date of the backup taken"),
-    org: str = O_('None', help='(optional) specify the org you want to switch to '),
+    from_org: str = O_('None', help='(optional) specify the org you want to switch to '),
+    to_org: str = O_('None', help='(optional) specify the org you want to switch to '),
 ):
     """ 
     Gathers the delta between source and destination cluster based on the specified date
     """
     
-
+    ts_org = from_org
+    ps_org = to_org
 
     file_args = {"sep": "|", "index": False, "encoding": "UTF-8"}
     get_cfg(cfg_name)
@@ -817,17 +901,17 @@ def gather_deltas(
 
 
     #ORGS
-    if org != 'None':
+    if ts_org != 'None':
         
         #console.print(orgs_json)
         try:
             orgs_json = pd.json_normalize(ts.get_orgs().json(),record_path='orgs')
             console.print(tabulate(orgs_json[['orgId','orgName']], headers='keys', tablefmt='psql'))
-            org_guid = orgs_json.loc[orgs_json.orgName == org,'orgId'].values[0]
-            console.print(f"✅ Switching context to {org}",style="success")
+            org_guid = orgs_json.loc[orgs_json.orgName == ts_org,'orgId'].values[0]
+            console.print(f"✅ Switching context to {ts_org}",style="success")
             ts.switch_org(orgid=org_guid)
         except:
-            console.print(f"⛔️ Org {org} does not exist on this cluster, please choose another Org",style="error")
+            console.print(f"⛔️ Org {ts_org} does not exist on this cluster, please choose another Org",style="error")
     else:
         pass
 
@@ -845,7 +929,7 @@ def gather_deltas(
     column_dir_mapping = {"created": "created", "modified": "modified"}
     
     user_id_mapping = map_users(cfg_name)
-    group_id_mapping = map_groups(cfg_name)
+    group_id_mapping = map_groups(cfg_name,ts_org,ps_org)
     user_id_mapping.rename(columns = {'id_x':'id_user_old','name':'user_name', 'id_y':'id_user_new'}, inplace = True)
     group_id_mapping.rename(columns = {'id_x':'id_group_old','name':'group_name', 'id_y':'id_group_new'}, inplace = True)
     user_id_mapping.to_csv(data_dir + "/"   "user_id_mapping.csv", **file_args)
@@ -1080,11 +1164,13 @@ def falcon_ddl(
         data = [ddl,columns]
         ddl = pd.concat(data)
     ddl.to_csv(data_dir + "/info/" +'falcon_ddl.csv', index=False, encoding='UTF8')
-    
+
 @app.command(name="create_groups")
 def create_groups(
     ctx: typer.Context,
     cfg_name: str = typer.Option(..., help="Name of config file"),
+    from_org: str = O_('None', help='(optional) specify the source org '),
+    to_org: str = O_('None', help='(optional) specify the target org '),
 ):
     """ 
     Creates missing groups on the destination cluster
@@ -1095,11 +1181,43 @@ def create_groups(
     table.add_column('Technical Name', justify='left',width=80)
     table.add_column('Status', justify='center',width=30)
     get_cfg(cfg_name)
-    ts = HTTPClient(ts_url=dest_ts_url)
-    r = ts.login(dest_username, dest_password)
+    ts = HTTPClient(ts_url=source_ts_url)
+    r = ts.login(source_username, source_password)
     r.raise_for_status()
-    group_dir = "created"
-    filename = "groups_created.csv"
+    ps = HTTPClient(ts_url=dest_ts_url)
+    r = ps.login(dest_username, dest_password)
+    r.raise_for_status()
+    if from_org != 'None':
+            
+            
+        try:
+                
+            orgs_json = pd.json_normalize(ts.get_orgs().json(),record_path='orgs')
+                
+            console.print(tabulate(orgs_json[['orgId','orgName']], headers='keys', tablefmt='psql'))
+            org_guid = orgs_json.loc[orgs_json.orgName == from_org,'orgId'].values[0]
+            console.print(f"✅ Switching source context to {from_org}",style="success")
+            ts.switch_org(orgid=org_guid)
+        except Exception as e:
+            print(str(e))
+            console.print(f"⛔️ Org {from_org} does not exist on this cluster, please choose another Org",style="error")
+    else:
+        pass
+        
+    if to_org != 'None':
+            
+        #console.print(orgs_json)
+        try:
+            orgs_json = pd.json_normalize(ps.get_orgs().json(),record_path='orgs')
+            org_guid = orgs_json.loc[orgs_json.orgName == to_org,'orgId'].values[0]
+            console.print(f"✅ Switching target context to {to_org}",style="success")
+            ps.switch_org(orgid=org_guid)
+        except:
+            console.print(f"⛔️ Org {to_org} does not exist on this cluster, please choose another Org",style="error")
+    else:
+        pass
+    group_dir = "all_objects"
+    filename = "falcon_groups.csv"
     file_args = {"sep": "|", "encoding": "UTF-8"}
     group_df = pd.read_csv(data_dir + "/" + group_dir + "/" + filename, **file_args)
     try:
@@ -1130,7 +1248,11 @@ def create_groups(
             Name = group_df["group_name"].iloc[i]
             Display = group_df["group_displayName"].iloc[i]
             Description = group_df["group_description"].iloc[i]
-            appz = ts.create_group(UserName=Name, DisplayName=Display, DESC=Description)
+            get_group_info = pd.json_normalize(ts.groups(group_name = Name).json())
+            print(get_group_info['privileges'][0])
+            privs = get_group_info['privileges'][0]
+            appz = ps.create_group(UserName=Name, DisplayName=Display, DESC=Description,privileges = privs )
+            appz = '<Response [200 ]>'
             sleep(0.5)
             if(str(appz)) == '<Response [200 ]>':
                 rsp = 'green'
