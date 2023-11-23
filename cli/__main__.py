@@ -1152,17 +1152,20 @@ def falcon_ddl(
     
     ddl = pd.DataFrame()
     for tbl in range(len(database_df)):
-        raw = ts.get_table_details(database_df["database"].iloc[tbl],database_df["schema"].iloc[tbl],database_df["table"].iloc[tbl]).json()
-        raw_norm = pd.json_normalize(raw,record_path='column')
-        columns = raw_norm[['data_type','id.guid','id.name']]
-        database = database_df["database"].iloc[tbl]
-        schema = database_df["schema"].iloc[tbl]
-        table = database_df["table"].iloc[tbl]
-        columns['database'] = database
-        columns['schema'] = schema
-        columns['table'] = table
-        data = [ddl,columns]
-        ddl = pd.concat(data)
+        try:
+            raw = ts.get_table_details(database_df["database"].iloc[tbl],database_df["schema"].iloc[tbl],database_df["table"].iloc[tbl]).json()
+            raw_norm = pd.json_normalize(raw,record_path='column')
+            columns = raw_norm[['data_type','id.guid','id.name']]
+            database = database_df["database"].iloc[tbl]
+            schema = database_df["schema"].iloc[tbl]
+            table = database_df["table"].iloc[tbl]
+            columns['database'] = database
+            columns['schema'] = schema
+            columns['table'] = table
+            data = [ddl,columns]
+            ddl = pd.concat(data)
+        except:
+            print("no columns present")
     ddl.to_csv(data_dir + "/info/" +'falcon_ddl.csv', index=False, encoding='UTF8')
 
 @app.command(name="create_groups")
@@ -1370,7 +1373,7 @@ def migrate_answers(
         _import_policy ='VALIDATE_ONLY'
         mode_type = 'Validation'
     if migration_mode == 'created':
-        create_new = True
+        create_new = False
         subfolder = 'created'
     else:
         create_new = False
@@ -1573,7 +1576,7 @@ def migrate_liveboards(
         _import_policy ='VALIDATE_ONLY'
         mode_type = 'Validation'
     if migration_mode == 'created':
-        create_new = True
+        create_new = False
         subfolder = 'created'
     else:
         create_new = False
@@ -1792,7 +1795,7 @@ def migrate_worksheets(
         _import_policy ='VALIDATE_ONLY'
         mode_type = 'Validation'
     if migration_mode == 'created':
-        create_new = True
+        create_new = False
         subfolder = 'created'
     else:
         create_new = False
@@ -1914,7 +1917,7 @@ def migrate_tables(
     else:
         Validate = True
     if migration_mode == 'created':
-        create_new = True
+        create_new = False
         subfolder = 'created'
     else:
         create_new = False
