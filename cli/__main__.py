@@ -278,12 +278,14 @@ def get_dependencies(
         "ThoughtSpot View": ts.view_list,
         "Worksheet": ts.worksheet_list,
     }
-
+    logical_table_data_all = pd.DataFrame()
+    dependency_data =pd.DataFrame()
     for name, ts_api_method in metadata_dependency.items():
         tables = pd.json_normalize(ts_api_method().json(), record_path='headers')
     
         print(name+":")
-        print(tables[['id','name','type']])
+        logical_table_data = tables[['id','name','type']]
+        logical_table_data_all = pd.concat([logical_table_data_all, logical_table_data], ignore_index=True)
         path = f"{data_dir}/info/dependencies/{name}"
         # Check whether the specified path exists or not
         isExist = os.path.exists(path)
@@ -293,6 +295,7 @@ def get_dependencies(
             print(f"The new {name} directory is created!")
         
         table_list = tables['id']
+        
         for guid in table_list:
             tbl_dep = ts.table_dependencies([guid]).json()
             try:
@@ -315,11 +318,57 @@ def get_dependencies(
                     count =  count + 1 
                 #print(count)
                 if count == 3:
-                    ts.metadata_assigntag(object_guids=['{}'.format(guid)],object_type=[f'LOGICAL_TABLE'],tag_names=['NoDependency'])
+                    try:
+                        ts.metadata_assigntag(object_guids=['{}'.format(guid)],object_type=[f'LOGICAL_TABLE'],tag_names=['NoDependency'])
+                    except:
+                        console.print("could not assign tag")
                 else:
-                    dependencies.to_csv(data_dir + f"/info/dependencies/{name}/{guid}_dependencies.csv")
+                    data = tbl_dep
+                    # Load JSON data
+                    #data = json.loads(tbl_dep)
+
+                    # Initialize lists to store rows
+                    rows = []
+                    
+                    # Extract data and create rows
+                    for key, value in data.items():
+                        for pinboard_answer in value.get("PINBOARD_ANSWER_BOOK", []):
+                            row = pinboard_answer.copy()
+                            row["HeaderColumn"] = key
+                            row["metadatatype"] = "PINBOARD_ANSWER_BOOK"
+                            row["source_type"] = name
+                            rows.append(row)
+
+                        for question_answer in value.get("QUESTION_ANSWER_BOOK", []):
+                            row = question_answer.copy()
+                            row["HeaderColumn"] = key
+                            row["metadatatype"] = "QUESTION_ANSWER_BOOK"
+                            row["source_type"] = name
+                            rows.append(row)
+
+                        for logical_table in value.get("LOGICAL_TABLE", []):
+                            row = logical_table.copy()
+                            row["HeaderColumn"] = key
+                            row["metadatatype"] = "LOGICAL_TABLE"
+                            row["source_type"] = name
+                            rows.append(row)
+
+                    # Create a DataFrame from the rows
+                    df = pd.DataFrame(rows)
+                    dependency_data=dependency_data.append(df)
+                    #console.print(dependency_data)
+
+                    # Display the DataFrame
+                    
             except:
-                pass    
+                pass
+    dependency_data = dependency_data[['metadatatype','HeaderColumn','id','name','source_type']]
+    dependency_data.to_csv(data_dir + f"/info/dependencies/dependencies.csv")
+    keep_types = ['QUESTION_ANSWER_BOOK','PINBOARD_ANSWER_BOOK']
+    dependency_hierarchy_1 = dependency_data[dependency_data['metadatatype'].isin(keep_types) == False]
+    
+    dependency_hierarchy_1.to_csv(data_dir + f"/info/dependencies/dependencies_level1.csv")
+    logical_table_data_all.to_csv(data_dir + f"/info/dependencies/metadata_objects.csv")
 @ app.command(name="get_orgs")
 def get_orgs(
     ctx: typer.Context,
@@ -570,46 +619,117 @@ def remove_summary(
         """    
         #output_message("Removed {} headline_aggregations from {}".format(len(Answers),dest_ts_url),'success')
 
-@ app.command(name="rollback_tml")
-def rollback_tml(
+
+@ app.command(name="compare_env")
+def compare_env(
     ctx: typer.Context,
     cfg_name: str = typer.Option(..., help="Name of config file"),
-    validate_only: str = typer.Option(..., help="yes/no"),
-    object_type: str = typer.Option(..., help="Answer/Liveboard"),
-
 ):
     """
     upload original tml objects (see projects/cfg-name/output/delta_migrations/tml_export/original/...)
     """
     get_cfg(cfg_name)
-    if validate_only =='no':
-        validate_flag = False
-    else:
-        validate_flag = True
-    ps: TSRestApiV1 = TSRestApiV1(server_url=dest_ts_url)
-    ps.requests_session.verify = False
-    try:
-        ps.session_login(username=dest_username, password=dest_password)
-        console.print("successfully logged in to " + dest_ts_url, style="success")
-    except requests.exceptions.HTTPError as e:
-        console.print(e, style="error")
-        print(e.response.content)
+    file_args = {"sep": "|", "encoding": "UTF-8"}
 
-    console.print(f"Uploading original {object_type} tml files", style="bold blue")
-    directory = f"{data_dir}/tml_export/original/{object_type}/"
-    for filename in os.listdir(directory):
-        obj = determine_tml_type(path=f"{data_dir}/tml_export/original/{object_type}/{filename}")
-        tml = obj.load(f"{data_dir}/tml_export/original/{object_type}/{filename}")
-        tml_name = tml.name
-        data = tml.dumps(format_type="JSON")
-        try:
-            UploadObject = ps.metadata_tml_import(data, create_new_on_server=False, validate_only=validate_flag)
-            console.print(f"[bold green]successfully[/bold green] recovered [bold cyan]{tml_name}[/bold cyan] from {filename}")
-            logging.info(str(tml_name)+' --> '+str(UploadObject['object'][0]['response']['status']))
-        except Exception as e:
-            pass
-            console.print(f"[bold red]failed[/bold red] to recover [bold cyan]{tml_name}[/bold cyan] from {filename} (see log files)")
-            logging.info(str(e)+' --> '+filename)
+    # groups: 
+
+    group_falcon = pd.read_csv(data_dir + "/" + "cs_tools_falcon" + "/" + "ts_group.csv", **file_args)
+    group_cloud = pd.read_csv(data_dir + "/" + "cs_tools_cloud" + "/" + "ts_group.csv", **file_args)
+    # Merge dataframes on a common column, for example, 'A'
+    merged_df = pd.merge(group_falcon, group_cloud, on='group_name', how='left', suffixes=('_fl', '_cl'))
+    # Filter rows where values from df1 are not present or different in df2
+    result_df = merged_df[merged_df['group_guid_cl'].isnull() | (merged_df['sharing_visibility_cl'] != merged_df['sharing_visibility_fl'])]
+    # Drop the columns from df2 after merging
+    result_df = result_df.drop(['group_guid_cl'], axis=1)
+    result_df.to_csv(data_dir + "/comparison/"+"group_comparison.csv",**file_args)
+    console.print(f"👨‍👩‍👧 Comparing group setup: {len(result_df)} groups are missing or different in cloud",style="info")
+    console.print("------------------------------------------------------------------------------")
+
+
+    # group nesting: 
+    group_nesting_falcon = pd.read_csv(data_dir + "/" + "cs_tools_falcon" + "/" + "ts_auth_sync_xref.csv", **file_args)
+    group_nesting_cloud = pd.read_csv(data_dir + "/" + "cs_tools_cloud" + "/" + "ts_auth_sync_xref.csv", **file_args)
+    # Merge dataframes on a common column, for example, 'A'
+    merged_df = pd.merge(group_nesting_falcon, group_nesting_cloud, on=['group_name','principal_name'], how='left', suffixes=('_fl', '_cl'))
+    # Filter rows where values from df1 are not present or different in df2
+    result_df = merged_df[merged_df['principal_type_cl'].isnull()]
+    # Drop the columns from df2 after merging
+    result_df.to_csv(data_dir + "/comparison/"+"group_nesting_comparison.csv",**file_args)
+    console.print(f"👨‍👩‍👧 Comparing nested groups setup: {len(result_df)} groups nestings are missing in cloud",style="info")
+    console.print("------------------------------------------------------------------------------")
+
+
+    # users:
+
+    user_falcon = pd.read_csv(data_dir + "/" + "cs_tools_falcon" + "/" + "ts_user.csv", **file_args)
+    user_cloud = pd.read_csv(data_dir + "/" + "cs_tools_cloud" + "/" + "ts_user.csv", **file_args)
+    # Merge dataframes on a common column, for example, 'A'
+    merged_df = pd.merge(user_falcon, user_cloud, on='username', how='left', suffixes=('_fl', '_cl'))
+    # Filter rows where values from df1 are not present or different in df2
+    result_df = merged_df[merged_df['user_guid_cl'].isnull() | (merged_df['sharing_visibility_cl'] != merged_df['sharing_visibility_fl'])]
+    # Drop the columns from df2 after merging
+    result_df = result_df.drop(['user_guid_cl'], axis=1)
+    result_df.to_csv(data_dir + "/comparison/"+"user_comparison.csv",**file_args)
+    console.print(f"🙎‍♂️ Comparing user setup: {len(result_df)} users are missing or different in cloud",style="info")
+    console.print("------------------------------------------------------------------------------")
+
+    # sharing permissions
+
+    object_falcon = pd.read_csv(data_dir + "/" + "cs_tools_falcon" + "/" + "ts_sharing_access.csv", **file_args)
+    object_falcon = pd.merge(object_falcon, user_falcon, left_on='shared_to_user_guid',right_on = 'user_guid', how='left')
+    object_falcon = pd.merge(object_falcon, group_falcon, left_on='shared_to_group_guid',right_on = 'group_guid', how='left')
+    object_cloud = pd.read_csv(data_dir + "/" + "cs_tools_cloud" + "/" + "ts_sharing_access.csv", **file_args)
+    object_cloud = pd.merge(object_cloud, user_cloud, left_on='shared_to_user_guid',right_on = 'user_guid', how='left')
+    object_cloud = pd.merge(object_cloud, group_cloud, left_on='shared_to_group_guid',right_on = 'group_guid', how='left')
+    
+    # Merge dataframes on a common column, for example, 'A'
+    merged_df = pd.merge(object_falcon, object_cloud, on=['object_guid','username','group_name'], how='left', suffixes=('_fl', '_cl'))
+    #print(merged_df)
+    # Filter rows where values from df1 are not present or different in df2
+    result_df = merged_df[merged_df['sk_dummy_cl'].isnull() | (merged_df['share_mode_cl'] != merged_df['share_mode_fl'])]
+    # Drop the columns from df2 after merging
+    #result_df = result_df.drop(['username_cl'], axis=1)
+    result_df = result_df[['object_guid','group_name','username','share_mode_fl','share_mode_cl']]
+    objects_to_share = result_df['object_guid'].values.tolist()
+    ts_sharing_access = pd.read_csv(data_dir + "/" + "cs_tools_falcon" + "/" + "ts_sharing_access.csv", **file_args)
+    objects_to_share_df = ts_sharing_access[ts_sharing_access['object_guid'].isin(objects_to_share)]
+    result_df.to_csv(data_dir + "/comparison/"+"sharing_comparison.csv",**file_args)
+    objects_to_share_df.to_csv(data_dir + "/comparison/"+"ts_sharing_access.csv",**file_args)
+    console.print(f"🔐 Comparing security setup: {len(result_df)} sharing permissions for {result_df['object_guid'].nunique()} objects are missing in cloud",style="info")
+    console.print("------------------------------------------------------------------------------")
+    # tags
+
+    tag_falcon = pd.read_csv(data_dir + "/" + "cs_tools_falcon" + "/" + "ts_tag.csv", **file_args)
+    tag_cloud = pd.read_csv(data_dir + "/" + "cs_tools_cloud" + "/" + "ts_tag.csv", **file_args)
+    # Merge dataframes on a common column, for example, 'A'
+    merged_df = pd.merge(tag_falcon, tag_cloud, on='tag_name', how='left', suffixes=('_fl', '_cl'))
+    # Filter rows where values from df1 are not present or different in df2
+    result_df = merged_df[merged_df['tag_guid_cl'].isnull() | (merged_df['color_cl'] != merged_df['color_fl'])]
+    # Drop the columns from df2 after merging
+    result_df = result_df.drop(['tag_guid_cl'], axis=1)
+    result_df.to_csv(data_dir + "/comparison/"+"tag_comparison.csv",**file_args)
+    console.print(f"🏷  Comparing tag setup: {len(result_df)} tags are missing or different in cloud",style="info")
+    console.print("------------------------------------------------------------------------------")
+    # objects
+
+
+    object_falcon = pd.read_csv(data_dir + "/" + "cs_tools_falcon" + "/" + "ts_metadata_object.csv", **file_args)
+    object_falcon = pd.merge(object_falcon, user_falcon, left_on='author_guid',right_on = 'user_guid', how='left')
+    object_cloud = pd.read_csv(data_dir + "/" + "cs_tools_cloud" + "/" + "ts_metadata_object.csv", **file_args)
+    object_cloud = pd.merge(object_cloud, user_cloud, left_on='author_guid',right_on = 'user_guid', how='left')
+    
+    # Merge dataframes on a common column, for example, 'A'
+    merged_df = pd.merge(object_falcon, object_cloud, on='object_guid', how='left', suffixes=('_fl', '_cl'))
+    #print(merged_df)
+    # Filter rows where values from df1 are not present or different in df2
+    result_df = merged_df[merged_df['username_cl'].isnull() | (merged_df['username_cl'] != merged_df['username_fl'])]
+    # Drop the columns from df2 after merging
+    #result_df = result_df.drop(['username_cl'], axis=1)
+    result_df = result_df[['object_guid','name_fl','name_cl','username_fl','username_cl']]
+    result_df.to_csv(data_dir + "/comparison/"+"object_comparison.csv",**file_args)
+    console.print(f"🌏 Comparing object setup: {len(result_df)} objects are missing or authors are different in cloud",style="info")
+
+    
 
 # local functions
 
@@ -676,7 +796,17 @@ def map_groups(cfg_name,ts_org,ps_org):
             data_dir + "/all_objects/" + "falcon_groups.csv", **file_args
         )
     )
+    
     falcon_groups = falcon_groups[['id','name']]
+    if cfg_name == 'payback_de' or cfg_name == 'payback_eu':
+        
+        falcon_groups['name'] = falcon_groups['name'].apply(lambda x: x.replace("cn=", ""))
+        falcon_groups['name'] = falcon_groups['name'].apply(lambda x: x.replace(".groups.accounts@lx.loyaltypartner.com", ""))
+
+        print(falcon_groups)
+        falcon_groups.to_csv(data_dir + "/all_objects/" + "falcon_groups.csv", **file_args)
+    else:
+        pass
     ps = HTTPClient(ts_url=dest_ts_url)
     r = ps.login(dest_username, dest_password)
     r.raise_for_status()
@@ -1864,9 +1994,9 @@ def migrate_worksheets(
     worksheet_author = df
     if Validate == False:
         worksheet_author.to_csv(data_dir + "/info/" + f'worksheet_{migration_mode}_author.csv', index=False, encoding='UTF8')
-        df_failed.to_csv(data_dir + "/" + "info" + "/" + f'liveboard_{migration_mode}_failed.csv', index=False, encoding='UTF8')
+        df_failed.to_csv(data_dir + "/" + "info" + "/" + f'worksheet_{migration_mode}_failed.csv', index=False, encoding='UTF8')
     else:
-        df_failed.to_csv(data_dir + "/" + "info" + "/" + f'liveboard_{migration_mode}_failed_validation.csv', index=False, encoding='UTF8')
+        df_failed.to_csv(data_dir + "/" + "info" + "/" + f'worksheet_{migration_mode}_failed_validation.csv', index=False, encoding='UTF8')
         pass
     logging.info("Finished Migration/Validation of " + str(len(worksheet_author)) + " objects")
     if(len(df_failed)) > 0:
@@ -2064,11 +2194,78 @@ def transfer_ownership(
             console.print(f"failed to assign authorship: {e}",style ='error')
             pass
 
+@app.command(name="transfer_ownership_by_file")
+def transfer_ownership(
+    ctx: typer.Context,
+    cfg_name: str = typer.Option(..., help="Name of config file"),
+    validate_only: str = typer.Option(..., help="yes/no"),
+):
+    """
+    Transfers the ownership from tsadmin to the actual user
+    """
+    output_message("🔐Transferring Ownership for all kind of objects",'success')
+    get_cfg(cfg_name)
+    log.info(f"Transfering Ownership for new objects")
+    ts = HTTPClient(ts_url=dest_ts_url)
+    r = ts.login(dest_username, dest_password)
+    r.raise_for_status()
 
+    #map_user = pd.read_csv(data_dir +"/"+'mapping_users.csv', header=[0],delimiter = '|')
+    base_objects = pd.read_csv(data_dir + "/" + "cs_tools_falcon/" + 'ts_metadata_object.csv', header=[0], delimiter='|')
+    print(len(base_objects))
+    users = (
+        pd.read_csv(data_dir + "/cs_tools_falcon/" + 'ts_user.csv', header=[0],delimiter = '|')
+    )
+    metadata_objects = (
+        pd.read_csv(data_dir + "/" + "cs_tools_falcon/" + 'ts_metadata_object.csv', header=[0], delimiter='|')
+        .pipe(comment, msg="Reading object information")
+        .merge(users, how="left", left_on='author_guid', right_on='user_guid')
+        
+    )
+    
+    print(metadata_objects.head(10))
+    print(len(metadata_objects))
+    
+
+
+
+    
+
+    
+    for i in range(len(metadata_objects)):
+        ObjGUID = metadata_objects['object_guid'].iloc[i]
+        FromUser = f'{dest_username}'
+        ToUser = metadata_objects['username'].iloc[i]
+
+        try:
+            if validate_only == 'no':
+                t = ts.transfer_ownership(FromUser, ToUser, ObjGUID)
+                logging.info(str(t))
+            else:
+                pass
+            
+            name_string = metadata_objects['name'].iloc[i]
+            length_string = 30 - len(name_string)
+            console.print(
+                str(i+1)+ ". "+
+                "[green][bold]✅[/green][/bold] ---> [bold][cyan]" +
+                metadata_objects['object_type'].iloc[i] + "[/bold][/cyan]: "+
+                name_string[0:29] +
+                ""
+                + " "*length_string +
+                " from [bold][cyan]" +
+                FromUser +
+                "[/bold][/cyan] to [bold][cyan]" +
+                ToUser)
+        except Exception as e:
+            console.print(f"failed to assign authorship: {e}",style ='error')
+            pass
+        
 @app.command(name="migrate_tags")
 def migrate_tags(
     ctx: typer.Context,
     cfg_name: str = typer.Option(..., help="Name of config file"),
+    validate_only: str = typer.Option(..., help="run in validation mode (True/False)"),
 ):
     """
     Adding new tags to destination cluster and assigning them to the new/modified objects
@@ -2093,21 +2290,25 @@ def migrate_tags(
                  .pipe(comment, msg="ts_tag.csv is present in cs_tools_falcon folder")
                  )
     tag_info = (
-        pd.read_csv(data_dir + "/" + "info/" + 'answer_author.csv', header=[0], delimiter=',')
+        pd.read_csv(data_dir + "/" + "cs_tools_falcon" + "/" + 'ts_metadata_object.csv', header=[0], delimiter='|')
         .pipe(comment, msg="Reading object information")
-        .merge(tagged_objects, how="inner", left_on='old_guid', right_on='object_guid')
+        .merge(tagged_objects, how="inner", left_on='object_guid', right_on='object_guid')
         .merge(tag_names, how="left", left_on='tag_guid', right_on='tag_guid')
     )
+    print(tag_info.head(10))
     for i in range(len(tag_info)):
         try:
-            guid = tag_info['new_guid'].iloc[i]
+            guid = tag_info['object_guid'].iloc[i]
             tag_name = tag_info['tag_name'].iloc[i]
-            object_name = tag_info['object_name'].iloc[i]
-            ps.metadata_assigntag(
-                object_guids=['{}'.format(guid)],
-                object_type=['QUESTION_ANSWER_BOOK'],
-                tag_names=[tag_name])
-            console.print('{} Tag assigned to {}'.format(tag_name, object_name), style="info")
+            object_name = tag_info['name'].iloc[i]
+            if validate_only == 'False':
+                ps.metadata_assigntag(
+                    object_guids=['{}'.format(guid)],
+                    object_type=['QUESTION_ANSWER_BOOK'],
+                    tag_names=[tag_name])
+                console.print('{} Tag assigned to {}'.format(tag_name, object_name), style="info")
+            else:
+                console.print('{} Tag validation for {} successfull'.format(tag_name, object_name), style="info")
         except BaseException:
             console.print('failed to assign tag for object: ' + object_name, style="error")
         pass
